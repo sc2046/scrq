@@ -4,27 +4,11 @@
 #include "vk_types.h"
 #include "vk_mem_alloc.h"
 
-#include <host_device_common.h>
-#include <shader.h>
+#include "host_device_common.h"
+#include "shader.h"
 
 class VulkanApp {
 public:
-
-	bool bUseValidationLayers{ true };
-	VkExtent2D mWindowExtents{ 1700 , 900 };
-	VkExtent2D mWorkGroupDim{ 16,16 };
-
-	void initContext(bool validation);
-	void initAllocators();
-	void initImage();
-	void initSpheres();
-	void initSphereBLAS();
-	void initSphereTLAS();
-	void initDescriptorSets();
-	void initComputePipeline();
-	
-	void run();
-	void cleanup();
 
 	struct Buffer
 	{
@@ -32,6 +16,42 @@ public:
 		VmaAllocation	mAllocation;
 		uint32_t		mByteSize;
 	};
+
+	struct AccelerationStructure
+	{
+		VkAccelerationStructureKHR	mHandle;
+		Buffer						mData; // Stores the Acceleration structure data.
+	};
+
+	struct Scene
+	{
+		std::vector<Sphere> mSpheres;
+		Buffer				mSphereBuffer;
+	};
+
+
+	bool bUseValidationLayers{ true };
+	VkExtent2D mWindowExtents{ 800, 600 };
+	VkExtent2D mWorkGroupDim{ 16,16 };
+
+	void initContext(bool validation);
+	void initAllocators();
+	void initImage();
+
+	void uploadScene();
+
+	void initAabbBlas();
+	void initSceneTLAS();
+	 
+	void initDescriptorSets();
+	void initComputePipeline();
+	
+	void render();
+	void writeImage(const fs::path& path);
+	void cleanup();
+
+
+
 private:
 	
 	// Vulkan context.
@@ -54,24 +74,22 @@ private:
 	VkDescriptorSetLayout		mDescriptorSetLayout;
 	VkDescriptorSet				mDescriptorSet;
 
-	// Buffers
+	// Image
 	//-----------------------------------------------
 	Buffer						mImageBuffer;
-
-	Buffer						mSphereBlasBuffer;
-	Buffer						mSphereTlasBuffer;
-	Buffer						mSphereTlasInstanceBuffer;
-
+	
 	// Acceleration structures
 	//-----------------------------------------------
-	VkAccelerationStructureKHR	mSphereBlas;
-	VkAccelerationStructureKHR	mSphereTlas;
+	AccelerationStructure		mAabbBlas;
+	Buffer						mAabbGeometryBuffer;
+	// Mesh Blas data...
+	
+	AccelerationStructure		mTlas;
+	Buffer						mTlasInstanceBuffer;  // Stores the per-instance data (matrices, materialID etc...) 
 
 	// Scene Data
 	//-----------------------------------------------
-	std::vector<Sphere>			mSpheres;
-	Buffer						mSphereBuffer;
-	Buffer						mAABBSphereBuffer; // Need to store AABBs on GPU for the BLAS. (but dont need to store them on cpu, assuming they are static!)
+	Scene						mScene;
 
 	// Shaders
 	//-----------------------------------------------
@@ -101,4 +119,6 @@ private:
 		}
 	};
 	DeletionQueue mDeletionQueue;
+
+
 };

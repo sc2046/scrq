@@ -12,13 +12,13 @@ layout(binding = 0, set = 0, scalar) buffer storageBuffer { vec3 imageData[]; };
 layout(binding = 1, set = 0) uniform accelerationStructureEXT tlas;
 layout(binding = 2, set = 0, scalar) buffer Spheres { Sphere spheres[]; };
 
-// The resolution of the buffer, which in this case is a hardcoded vector of 2 unsigned integers:
-const uvec2 resolution = uvec2(1700, 900);
-const uint numSamples = 100;
-const uint numBounces = 50;
+const uvec2 resolution = uvec2(800, 600);
+const uint numSamples = 16;
+const uint numBounces = 4;
 
 vec3 rayColor(Ray ray, inout uint rngState);
 vec3 skyColor(vec3 direction);
+
 void main()
 {
 	const uvec2 pixel = gl_GlobalInvocationID.xy;
@@ -27,10 +27,20 @@ void main()
 	// Use the linear index of the pixel as the initial seed for the RNG.
 	uint rngState = resolution.x * pixel.y + pixel.x;
 
-	// Define the camera paremeters.
+	// Camera parameters for Book 1 chapters 8-13.
+	//Camera camera;
+	//camera.center = vec3(0, 0, 0);
+	//camera.eye = vec3(0, 0, -1);
+	//camera.fovY = 90.f;
+	//camera.focalDistance = 1.f;
+
+	// Camera parameters for Book 1 chapter 14.
 	Camera camera;
-	camera.origin	= vec3(0.f, 0.f, 0.f);
-	camera.fovY		= 90.f;
+	camera.center			= vec3(13, 2, 3);
+	camera.eye				= vec3(0, 0, 0);
+	camera.fovY				= 20.f;
+	camera.focalDistance	= 1.f;
+
 
 	vec3 pixelColor = vec3(0.f);
 	for (int sampleID = 0; sampleID < numSamples; ++sampleID)
@@ -63,21 +73,11 @@ vec3 rayColor(Ray ray, inout uint rngState)
 			// Check intersections with each (leaf) AABB.
 			if (rayQueryGetIntersectionTypeEXT(rayQuery, false) == gl_RayQueryCandidateIntersectionAABBEXT)
 			{
-				int sphereID	= rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, false);
-				Sphere sphere	= spheres[sphereID];
-				float tHit		= hitSphere(sphere, ray);
+				const int sphereID	= rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, false);
+				const Sphere sphere	= spheres[sphereID];
 
-				// Update closest intersection.
-				if (tHit > tMin && tHit < hitInfo.t)
-				{
-					// TODO: For now, world space = local space.
-					hitInfo.t		= tHit;
-					hitInfo.p		= ray.origin + tHit * ray.direction;
-					hitInfo.gn		= normalize(hitInfo.p - sphere.center);
-					hitInfo.sn		= hitInfo.gn;
-					hitInfo.color	= vec3(0.5f);
-
-					rayQueryGenerateIntersectionEXT(rayQuery, tHit);
+				if (hitSphere(sphere, ray, hitInfo)) {
+					rayQueryGenerateIntersectionEXT(rayQuery, hitInfo.t);
 				}
 			}
 		}
@@ -93,15 +93,30 @@ vec3 rayColor(Ray ray, inout uint rngState)
 		else {
 			vec3 attenuation;
 			Ray scattered;
+			const int primitiveID = rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, true);
+			const Sphere sphere = spheres[primitiveID];
+			
+			bool scatter;
+			switch (sphere.material) {
+			case DIFFUSE:
+				scatter = scatterDiffuse(ray, hitInfo, attenuation, scattered, rngState);
+				break;
+			case METAL:
+				scatter = scatterMetal(ray, hitInfo, attenuation, scattered, rngState);
+				break;
+			case DIELECTRIC:
+				scatter = scatterDielectric(ray, hitInfo, attenuation, scattered, rngState);
+				break;
+			default:
+				scatter = false;
+				break;
+			}
 
-			if (scatterDiffuse(ray, hitInfo, attenuation, scattered, rngState)) {
+			if (scatter) {
 				curAttenuation *= attenuation;
 				ray = scattered;
 			}
-			// Treat the ray as if it were absorbed by the material.
-			else {
-				return vec3(0.f);
-			}
+			else return vec3(0.f);
 		}
 	}
 	// Exceeded recursion - assume the sample provides no contribution to the light.
@@ -110,9 +125,8 @@ vec3 rayColor(Ray ray, inout uint rngState)
 
 vec3 skyColor(vec3 direction)
 {
-	if (direction.y > 0.0f) {
-		return mix(vec3(1.0f), vec3(0.25f, 0.5f, 1.0f), direction.y);
-	}
-	return vec3(0.03f);
+	const vec3 unit_direction = normalize(direction);
+	float a = 0.5 * (unit_direction.y + 1.0);
+	return (1.0 - a) * vec3(1.0, 1.0, 1.0) + a * vec3(0.5, 0.7, 1.0);
 }
 

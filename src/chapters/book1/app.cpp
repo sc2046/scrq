@@ -1,13 +1,11 @@
 
-#include <iostream>
-
 #include <volk.h>
+#include <VkBootstrap.h>
 
 #include "app.h"
-
 #include "vk_types.h"
 
-#include <VkBootstrap.h>
+#include <iostream>
 
 #define VMA_IMPLEMENTATION
 #include "vk_mem_alloc.h"
@@ -15,9 +13,16 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 
-#define TINYOBJLOADER_IMPLEMENTATION
-#include "tiny_obj_loader.h"
+#include <cstdlib>
 
+inline float random_double() {
+    // Returns a random real in [0,1).
+    return std::rand() / (RAND_MAX + 1.0);
+}
+
+inline glm::vec3 random_vector() {
+    return vec3(random_double(), random_double(), random_double());
+}
 
 void VulkanApp::initContext(bool validation)
 {
@@ -136,14 +141,79 @@ void VulkanApp::initAllocators()
     mDeletionQueue.push_function([&]() { vkDestroyCommandPool(mDevice, mCommandPool, nullptr);});
 }
 
+std::vector<Sphere> createCh9Scene()
+{
+    std::vector<Sphere> mSpheres;
+    mSpheres.emplace_back(glm::vec3(0.f, 0.f, -1.f), 0.5f, DIFFUSE, glm::vec3(0.5f));
+    mSpheres.emplace_back(glm::vec3(0.f, -100.5f, -1.f), 100.f, DIFFUSE, glm::vec3(0.5f));
+    return mSpheres;
+}
 
+std::vector<Sphere> createCh10Scene()
+{
+    std::vector<Sphere> mSpheres;
+
+    // Initialize spheres for the scene.
+    mSpheres.emplace_back(glm::vec3(0.0, -100.5, -1.0), 100.0, DIFFUSE, glm::vec3(0.8f,0.8f,0.f));
+    mSpheres.emplace_back(glm::vec3(0.0, 0.0, -1.2), 0.5, DIFFUSE, glm::vec3(0.1f, 0.2f, 0.5f));
+    mSpheres.emplace_back(glm::vec3(-1.0, 0.0, -1.0), 0.5, METAL, glm::vec3(0.8f));
+    mSpheres.emplace_back(glm::vec3(1.0, 0.0, -1.0), 0.5, METAL, glm::vec3(0.8f,0.6f,0.2f));
+    return mSpheres;
+}
+
+std::vector<Sphere> createCh11Scene()
+{
+    std::vector<Sphere> mSpheres;
+
+    // Initialize spheres for the scene.
+    mSpheres.emplace_back(glm::vec3(0.0, -100.5, -1.0), 100.0, DIFFUSE, glm::vec3(0.8f, 0.8f, 0.f));
+    mSpheres.emplace_back(glm::vec3(0.0, 0.0, -1.2), 0.5, DIFFUSE, glm::vec3(0.1f, 0.2f, 0.5f));
+    mSpheres.emplace_back(glm::vec3(-1.0, 0.0, -1.0), 0.5, DIELECTRIC, glm::vec3(1.f)); // note ior is fixed at 1.5 in shader.
+    mSpheres.emplace_back(glm::vec3(1.0, 0.0, -1.0), 0.5, METAL, glm::vec3(0.8f, 0.6f, 0.2f));
+    return mSpheres;
+}
+
+std::vector<Sphere> createCh14Scene()
+{
+    std::vector<Sphere> mSpheres;
+
+    // Ground
+    mSpheres.emplace_back(glm::vec3(0, -1000, 0), 1000.f, DIFFUSE, glm::vec3(0.5f));
+
+    for (int a = -11; a < 11; a++) {
+        for (int b = -11; b < 11; b++) {
+            const auto choose_mat = random_double();
+
+            glm::vec3 center(a + 0.9 * random_double(), 0.2, b + 0.9 * random_double());
+
+            if (glm::length(center - glm::vec3(4, 0.2, 0)) > 0.9) {
+
+                if (choose_mat < 0.8) {
+                    auto albedo = random_vector();
+                    mSpheres.emplace_back(center, 0.2f, DIFFUSE, albedo);
+                }
+                else if (choose_mat < 0.95) {
+                    auto albedo = random_vector();
+                    mSpheres.emplace_back(center, 0.2f, METAL, albedo);
+                }
+                else {
+                    mSpheres.emplace_back(center, 0.2f, DIELECTRIC, glm::vec3(1.f));
+                }
+            }
+        }
+    }
+
+    mSpheres.emplace_back(glm::vec3(0, 1, 0), 1.f, DIELECTRIC, glm::vec3(1.f));
+    mSpheres.emplace_back(glm::vec3(-4, 1, 0), 1.f, DIFFUSE, glm::vec3(0.4f, 0.2f, 0.1f));
+    mSpheres.emplace_back(glm::vec3(4, 1, 0), 1.f, METAL, glm::vec3(0.7, 0.6, 0.5));
+
+    return mSpheres;
+}
 
 void VulkanApp::initSpheres()
 {
-    // Initialize spheres for the scene.
-
-    mSpheres.emplace_back(glm::vec3(0.f, 0.f, -1.f), 0.5f);
-    mSpheres.emplace_back(glm::vec3(0.f, -100.5f, -1.f), 100.f);
+    
+    mSpheres = createCh14Scene();
 
     // The AABBs of the spheres are needed for construction of the BLAS.
     std::vector<AABB> aabbs;
@@ -227,7 +297,6 @@ void VulkanApp::initSpheres()
 
     vmaDestroyBuffer(mVmaAllocator, sphereStagingBuffer.mBuffer, sphereStagingBuffer.mAllocation);
     vmaDestroyBuffer(mVmaAllocator, aabbStagingBuffer.mBuffer, aabbStagingBuffer.mAllocation);
-
 }
 
 void VulkanApp::initSphereBLAS()
@@ -323,6 +392,7 @@ void VulkanApp::initSphereBLAS()
     vmaDestroyBuffer(mVmaAllocator, scratchBuffer.mBuffer, scratchBuffer.mAllocation);
 }
 
+
 void VulkanApp::initSphereTLAS()
 {
     // Create an instance referring to a blas. In this scene, we use a single instance with an identity transform.
@@ -333,11 +403,11 @@ void VulkanApp::initSphereTLAS()
         transform.matrix[0][0] = transform.matrix[1][1] = transform.matrix[2][2] = 1.f;
         instances[0] = {
            .transform = transform,
-           .instanceCustomIndex = 0,  // Optional: custom index for this instance (available in shaders)
-           .mask = 0xFF,  // Visibility mask, typically set to 0xFF to allow visibility in all ray types
-           .instanceShaderBindingTableRecordOffset = 0,  // Offset in the shader binding table for this instance
-           .flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR,  // No face culling, etc.
-           .accelerationStructureReference = getBlasDeviceAddress(mDevice, mSphereBlas)  // The device address of the BLAS
+           .instanceCustomIndex = 0,                                                    // We have no use for the custom index.
+           .mask = 0xFF,                                                                // No masking. Ray will always be visible.
+           .instanceShaderBindingTableRecordOffset = 0,                                 // We use this to determine the material of the surface.
+           .flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR,          // No face culling, etc.
+           .accelerationStructureReference = getBlasDeviceAddress(mDevice, mSphereBlas) 
         };
     }
 
@@ -572,10 +642,10 @@ void VulkanApp::initDescriptorSets()
     vkUpdateDescriptorSets(mDevice, static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
 }
 
-void VulkanApp::initComputePipeline()
+void VulkanApp::initComputePipeline(const fs::path& shader_path)
 {
     // Load shader module.
-    mComputeShader = createShaderModule(mDevice, fs::path("shaders/ch9/ch9.spv"));
+    mComputeShader = createShaderModule(mDevice, shader_path);
     const VkPipelineShaderStageCreateInfo pipelineShaderStageCreateInfo{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
         .stage = VK_SHADER_STAGE_COMPUTE_BIT,
@@ -607,7 +677,7 @@ void VulkanApp::initComputePipeline()
     mDeletionQueue.push_function([&]() {vkDestroyPipeline(mDevice, mComputePipeline, nullptr);});
 }
 
-void VulkanApp::run()
+void VulkanApp::render()
 {
     VkCommandBuffer cmdBuf = AllocateAndBeginOneTimeCommandBuffer(mDevice, mCommandPool);
     {
@@ -634,11 +704,14 @@ void VulkanApp::run()
             0, nullptr, 0, nullptr);                  // No image/buffer memory barriers.
     }
     EndSubmitWaitAndFreeCommandBuffer(mDevice, mComputeQueue, mCommandPool, cmdBuf);
+}
 
+void VulkanApp::writeImage(const fs::path& path)
+{
     // Write the buffer data to an external image.
     void* data;
     vmaMapMemory(mVmaAllocator, mImageBuffer.mAllocation, &data);
-    stbi_write_hdr("../../scenes/ch9.hdr", mWindowExtents.width, mWindowExtents.height, 3, reinterpret_cast<float*>(data));
+    stbi_write_hdr(path.string().data(), mWindowExtents.width, mWindowExtents.height, 3, reinterpret_cast<float*>(data));
     vmaUnmapMemory(mVmaAllocator, mImageBuffer.mAllocation);
 }
 
@@ -647,8 +720,6 @@ void VulkanApp::cleanup()
 {
     // make sure the gpu has stopped doing its things				
     vkDeviceWaitIdle(mDevice);
-
-
     //flush the global deletion queue
     mDeletionQueue.flush();
 }

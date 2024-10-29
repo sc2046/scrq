@@ -2,6 +2,9 @@
 #ifndef DEVICE_COMMON_H
 #define DEVICE_COMMON_H
 
+
+/// Stores information from a ray-surface intersection point.
+/// 
 struct HitInfo
 {
 	float t;  // Ray parameter at the hit position.
@@ -10,28 +13,60 @@ struct HitInfo
 	vec3 sn; // Interpolated shading normal (for triangles).
 	//vec2 uv; // < UV texture coordinates
 	vec3 color;
-	//uint matID;
+
+	uint material;
 };
+
 
 
 Ray generateRay(Camera cam, vec2 pixel, uvec2 resolution)
 {
+	const float image_plane_height	= 2.f * cam.focalDistance * tan(radians(cam.fovY) / 2.f);
+	const float image_plane_width	= image_plane_height * (float(resolution.x) / resolution.y);
+
 	Ray ray;
 
-	ray.origin = cam.origin;
-	const vec2 xy = (pixel - resolution / 2.f) / resolution.y;
-	const float z = 1.f / (2.f * tan(radians(cam.fovY) / 2.f));
-	ray.direction = normalize(vec3(xy.x, -xy.y, -z));
+	// Define the ray in local coordinates;
+	ray.origin = vec3(0.f);
+	const float pixel_width		= image_plane_width / float(resolution.x);
+	const float pixel_height	= image_plane_height/ float(resolution.y);
+	ray.direction.x = -image_plane_width / 2.f + pixel.x * pixel_width;
+	ray.direction.y =  image_plane_height / 2.f - pixel.y * pixel_height;
+	ray.direction.z = -1.f;
+
+	// Determine the world transform for the camera.
+	const vec3 up	= vec3(0, 1, 0);
+	const vec3 w	= normalize(cam.center - cam.eye);
+	const vec3 u	= normalize(cross(up, w));
+	const vec3 v	= normalize(cross(w, u));
+	
+	const mat4 transform = mat4(
+		vec4(u, 0.f),
+		vec4(v, 0.f),
+		vec4(w, 0.f),
+		vec4(cam.center, 1.f)
+	);
+
+	// Transform the ray into world space;
+	const vec4 oTransform	= transform * vec4(ray.origin, 1.f);
+	ray.origin				= oTransform.xyz / oTransform.w;
+
+	const vec4 dTransform	= transform * vec4(ray.direction, 0.f);
+	ray.direction			= normalize(dTransform.xyz);
+
 	return ray;
 }
 
-
 // ==============================================================
 // Intersection Routines
+// Note: During ray-surface intersections, the ray is transformed 
+// into the local space of the surface. 
 // ==============================================================
 
-// Returns the ray t-value at the intersection point, or -1 if no intersection occured.
-float hitSphere(Sphere s, Ray r)
+/// Intersects a ray against a sphere.
+/// If a valid intersection was found, fills the hitInfo struct, and returns true.
+/// Otherwise, returns false.
+bool hitSphere(Sphere s, Ray r, inout HitInfo hitInfo)
 {
 	const vec3  oc = r.origin - s.center;
 	const float a = dot(r.direction, r.direction);
@@ -39,7 +74,21 @@ float hitSphere(Sphere s, Ray r)
 	const float c = dot(oc, oc) - s.radius * s.radius;
 	const float discriminant = b * b - 4 * a * c;
 
-	return discriminant < 0.f ? -1.f : (-b - sqrt(discriminant)) / (2.0 * a);
+	if (discriminant < 0.f) 
+		return false;
+
+	const float tHit = (-b - sqrt(discriminant)) / (2.f * a);
+	if (tHit < 0.f || tHit > hitInfo.t)
+		return false;
+	
+	hitInfo.t = tHit;
+	hitInfo.p = r.origin + tHit * r.direction;
+	hitInfo.gn = normalize(hitInfo.p - s.center);
+	hitInfo.sn = hitInfo.gn;
+	hitInfo.material	= s.material;
+	hitInfo.color		= s.color;
+	
+	return true;
 }
 
 // ==============================================================
@@ -60,6 +109,7 @@ float stepAndOutputRNGFloat(inout uint rngState)
 // ==============================================================
 // Maths
 // ==============================================================
+
 bool refract(vec3 v_, vec3 n, float eta, inout vec3 refracted)
 {
 	vec3 v = normalize(v_);
@@ -104,7 +154,6 @@ float schlick_reflectance(vec3 v, vec3 n, float ext_ior, float int_ior)
 	}
 }
 
-
 // offsetPositionAlongNormal shifts a point on a triangle surface so that a
 // ray bouncing off the surface with tMin = 0.0 is no longer treated as
 // intersecting the surface it originated from.
@@ -145,7 +194,7 @@ bool scatterDiffuse(Ray ray, HitInfo hitInfo, out vec3 attenuation, out Ray scat
 	attenuation = hitInfo.color;
 
 	// Avoid self-shadowing.
-	scattered.origin = hitInfo.p - 0.0001f * sign(dot(ray.direction, hitInfo.gn)) * hitInfo.gn;
+	scattered.origin = offsetPositionAlongNormal(hitInfo.p, hitInfo.gn);
 
 	const float theta = 2.f * M_PI * stepAndOutputRNGFloat(rngState);  // Random in [0, 2pi]
 	const float u = 2.0 * stepAndOutputRNGFloat(rngState) - 1.0;   // Random in [-1, 1]
@@ -161,9 +210,9 @@ bool scatterMetal(Ray ray, HitInfo hitInfo, out vec3 attenuation, out Ray scatte
 	attenuation = hitInfo.color;
 
 	// Avoid self-shadowing.
-	scattered.origin = hitInfo.p - 0.0001f * sign(dot(ray.direction, hitInfo.gn)) * hitInfo.gn;
+	scattered.origin = offsetPositionAlongNormal(hitInfo.p, hitInfo.gn);
 
-	vec3 reflected = reflect(ray.direction, hitInfo.gn);
+	const vec3 reflected = reflect(ray.direction, hitInfo.gn);
 	scattered.direction = normalize(reflected);
 
 	return true;
@@ -190,13 +239,13 @@ bool scatterDielectric(Ray ray, HitInfo hitInfo, out vec3 attenuation, out Ray s
 	const float fresnel			= schlick_reflectance(normalize(ray.direction), hitInfo.gn, 1.f, ior);
 
 	if (!can_refract || fresnel > stepAndOutputRNGFloat(rngState)) {
-		// TIR
+		scattered.origin = offsetPositionAlongNormal(hitInfo.p, n);
 		scattered.direction = normalize(reflect(normalize(ray.direction), normalize(n)));
 	}
 	else {
+		scattered.origin	= offsetPositionAlongNormal(hitInfo.p, -n);
 		scattered.direction = normalize(refracted);
 	}
-	scattered.origin = hitInfo.p;
 	return true;
 }
 

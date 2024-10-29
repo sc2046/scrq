@@ -18,6 +18,18 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
 
+#include <cstdlib>
+
+inline float random_double() {
+    // Returns a random real in [0,1).
+    return std::rand() / (RAND_MAX + 1.0);
+}
+
+inline glm::vec3 random_vector() {
+    return vec3(random_double(), random_double(), random_double());
+}
+
+
 void VulkanApp::initContext(bool validation)
 {
     // Create instance
@@ -135,34 +147,84 @@ void VulkanApp::initAllocators()
     mDeletionQueue.push_function([&]() { vkDestroyCommandPool(mDevice, mCommandPool, nullptr);});
 }
 
-
-
-void VulkanApp::initSpheres()
+std::vector<Sphere> createCh9Scene()
 {
+    std::vector<Sphere> mSpheres;
+    mSpheres.emplace_back(glm::vec3(0.f, 0.f, -1.f), 0.5f, DIFFUSE, glm::vec3(0.5f));
+    mSpheres.emplace_back(glm::vec3(0.f, -100.5f, -1.f), 100.f, DIFFUSE, glm::vec3(0.5f));
+    return mSpheres;
+}
+
+std::vector<Sphere> createCh10Scene()
+{
+    std::vector<Sphere> mSpheres;
+
     // Initialize spheres for the scene.
-    mSpheres.emplace_back(glm::vec3(0.0, -100.5, -1.0), 100.0 );
-    mSpheres.emplace_back(glm::vec3(0.0, 0.0, -1.2), 0.5 );
-    mSpheres.emplace_back(glm::vec3(-1.0, 0.0, -1.0), 0.5);
-    mSpheres.emplace_back(glm::vec3(1.0, 0.0, -1.0), 0.5);
+    mSpheres.emplace_back(glm::vec3(0.0, -100.5, -1.0), 100.0, DIFFUSE, glm::vec3(0.8f,0.8f,0.f));
+    mSpheres.emplace_back(glm::vec3(0.0, 0.0, -1.2), 0.5, DIFFUSE, glm::vec3(0.1f, 0.2f, 0.5f));
+    mSpheres.emplace_back(glm::vec3(-1.0, 0.0, -1.0), 0.5, METAL, glm::vec3(0.8f));
+    mSpheres.emplace_back(glm::vec3(1.0, 0.0, -1.0), 0.5, METAL, glm::vec3(0.8f,0.6f,0.2f));
+    return mSpheres;
+}
 
-    // The AABBs of the spheres are needed for construction of the BLAS.
-    std::vector<AABB> aabbs;
-    aabbs.reserve(mSpheres.size());
-    for (const auto& s : mSpheres)
-    {
-        AABB aabb{
-            .min = s.center - glm::vec3(s.radius),
-            .max = s.center + glm::vec3(s.radius)
-        };
-        aabbs.emplace_back(aabb);
+std::vector<Sphere> createCh11Scene()
+{
+    std::vector<Sphere> mSpheres;
+
+    // Initialize spheres for the scene.
+    mSpheres.emplace_back(glm::vec3(0.0, -100.5, -1.0), 100.0, DIFFUSE, glm::vec3(0.8f, 0.8f, 0.f));
+    mSpheres.emplace_back(glm::vec3(0.0, 0.0, -1.2), 0.5, DIFFUSE, glm::vec3(0.1f, 0.2f, 0.5f));
+    mSpheres.emplace_back(glm::vec3(-1.0, 0.0, -1.0), 0.5, DIELECTRIC, glm::vec3(1.f)); // note ior is fixed at 1.5 in shader.
+    mSpheres.emplace_back(glm::vec3(1.0, 0.0, -1.0), 0.5, METAL, glm::vec3(0.8f, 0.6f, 0.2f));
+    return mSpheres;
+}
+
+std::vector<Sphere> createCh14Scene()
+{
+    std::vector<Sphere> mSpheres;
+
+    // Ground
+    mSpheres.emplace_back(glm::vec3(0, -1000, 0), 1000.f, DIFFUSE, glm::vec3(0.5f));
+
+    for (int a = -11; a < 11; a++) {
+        for (int b = -11; b < 11; b++) {
+            const auto choose_mat = random_double();
+
+            glm::vec3 center(a + 0.9 * random_double(), 0.2, b + 0.9 * random_double());
+
+            if (glm::length(center - glm::vec3(4, 0.2, 0)) > 0.9) {
+
+                if (choose_mat < 0.8) {
+                    auto albedo = random_vector();
+                    mSpheres.emplace_back(center, 0.2f, DIFFUSE, albedo);
+                }
+                else if (choose_mat < 0.95) {
+                    auto albedo = random_vector();
+                    mSpheres.emplace_back(center, 0.2f, METAL, albedo);
+                }
+                else {
+                    mSpheres.emplace_back(center, 0.2f, DIELECTRIC, glm::vec3(1.f));
+                }
+            }
+        }
     }
+
+    mSpheres.emplace_back(glm::vec3(0, 1, 0), 1.f, DIELECTRIC, glm::vec3(1.f));
+    mSpheres.emplace_back(glm::vec3(-4, 1, 0), 1.f, DIFFUSE, glm::vec3(0.4f, 0.2f, 0.1f));
+    mSpheres.emplace_back(glm::vec3(4, 1, 0), 1.f, METAL, glm::vec3(0.7, 0.6, 0.5));
+
+    return mSpheres;
+}
+
+// Uploads all scene geometry into GPU buffers;
+void VulkanApp::uploadScene()
+{
+    mScene.mSpheres = createCh14Scene();
+
     VulkanApp::Buffer sphereStagingBuffer;
-    sphereStagingBuffer.mByteSize = mSpheres.size() * sizeof(Sphere);
+    sphereStagingBuffer.mByteSize = mScene.mSpheres.size() * sizeof(Sphere);
 
-    VulkanApp::Buffer aabbStagingBuffer;
-    aabbStagingBuffer.mByteSize = aabbs.size() * sizeof(AABB);
-
-    VkBufferCreateInfo stagingbufferCreateInfo{
+    const VkBufferCreateInfo stagingbufferCreateInfo{
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
             .size = sphereStagingBuffer.mByteSize,
             .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -177,25 +239,15 @@ void VulkanApp::initSpheres()
 
     void* sdata;
     vmaMapMemory(mVmaAllocator, sphereStagingBuffer.mAllocation, (void**)&sdata);
-    memcpy(sdata, mSpheres.data(), mSpheres.size() * sizeof(Sphere));
+    memcpy(sdata, mScene.mSpheres.data(), mScene.mSpheres.size() * sizeof(Sphere));
     vmaUnmapMemory(mVmaAllocator, sphereStagingBuffer.mAllocation);
 
-    // Create Staging buffer for aabbs.
-    stagingbufferCreateInfo.size = aabbStagingBuffer.mByteSize;
-    VK_CHECK(vmaCreateBuffer(mVmaAllocator, &stagingbufferCreateInfo, &stagingBufferAllocInfo, &aabbStagingBuffer.mBuffer, &aabbStagingBuffer.mAllocation, nullptr));
+    // Create GPU buffer for the spheres.
+    mScene.mSphereBuffer.mByteSize = sphereStagingBuffer.mByteSize;
 
-    void* adata;
-    vmaMapMemory(mVmaAllocator, aabbStagingBuffer.mAllocation, (void**)&adata);
-    memcpy(adata, aabbs.data(), aabbs.size() * sizeof(AABB));
-    vmaUnmapMemory(mVmaAllocator, aabbStagingBuffer.mAllocation);
-
-    // Create GPU buffers for the spheres and AABBs.
-    mSphereBuffer.mByteSize     = sphereStagingBuffer.mByteSize;
-    mAABBSphereBuffer.mByteSize = aabbStagingBuffer.mByteSize;
-
-    VkBufferCreateInfo deviceBufferCreateInfo{
+    const VkBufferCreateInfo deviceBufferCreateInfo{
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        .size = mSphereBuffer.mByteSize,
+        .size = mScene.mSphereBuffer.mByteSize,
         .usage =
             VK_BUFFER_USAGE_TRANSFER_DST_BIT |
             VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
@@ -204,47 +256,88 @@ void VulkanApp::initSpheres()
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE
     };
     const VmaAllocationCreateInfo deviceBufferAllocInfo{ .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, };
-    VK_CHECK(vmaCreateBuffer(mVmaAllocator, &deviceBufferCreateInfo, &deviceBufferAllocInfo, &mSphereBuffer.mBuffer, &mSphereBuffer.mAllocation, nullptr));
-    mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, mSphereBuffer.mBuffer, mSphereBuffer.mAllocation);});
-
-    deviceBufferCreateInfo.size = mAABBSphereBuffer.mByteSize;
-    VK_CHECK(vmaCreateBuffer(mVmaAllocator, &deviceBufferCreateInfo, &deviceBufferAllocInfo, &mAABBSphereBuffer.mBuffer, &mAABBSphereBuffer.mAllocation, nullptr));
-    mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, mAABBSphereBuffer.mBuffer, mAABBSphereBuffer.mAllocation);});
-
+    VK_CHECK(vmaCreateBuffer(mVmaAllocator, &deviceBufferCreateInfo, &deviceBufferAllocInfo, &mScene.mSphereBuffer.mBuffer, &mScene.mSphereBuffer.mAllocation, nullptr));
+    mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, mScene.mSphereBuffer.mBuffer, mScene.mSphereBuffer.mAllocation);});
 
     VkCommandBuffer cmdBuf = AllocateAndBeginOneTimeCommandBuffer(mDevice, mCommandPool);
     {
-        VkBufferCopy copy;
-        copy.dstOffset = 0;
-        copy.srcOffset = 0;
-        copy.size = mSphereBuffer.mByteSize;
-        vkCmdCopyBuffer(cmdBuf, sphereStagingBuffer.mBuffer, mSphereBuffer.mBuffer, 1, &copy);
-
-        copy.size = mAABBSphereBuffer.mByteSize;
-        vkCmdCopyBuffer(cmdBuf, aabbStagingBuffer.mBuffer, mAABBSphereBuffer.mBuffer, 1, &copy);
+        VkBufferCopy copy{ .srcOffset = 0, .dstOffset = 0, .size = mScene.mSphereBuffer.mByteSize };
+        vkCmdCopyBuffer(cmdBuf, sphereStagingBuffer.mBuffer, mScene.mSphereBuffer.mBuffer, 1, &copy);
     }
     EndSubmitWaitAndFreeCommandBuffer(mDevice, mComputeQueue, mCommandPool, cmdBuf);
-
     vmaDestroyBuffer(mVmaAllocator, sphereStagingBuffer.mBuffer, sphereStagingBuffer.mAllocation);
-    vmaDestroyBuffer(mVmaAllocator, aabbStagingBuffer.mBuffer, aabbStagingBuffer.mAllocation);
 
 }
 
-void VulkanApp::initSphereBLAS()
+// Creates a blas for an AABB. In local space, the AABB is centered at the origin with a half-extents of 1.
+void VulkanApp::initAabbBlas()
 {
-    const uint32_t kSphereCount = mSpheres.size();
+    // First need to create buffer for the aabb, which will be used to build the BLAS. 
+    {
+        const AABB aabb{
+            .min = glm::vec3(-1.f),
+            .max = glm::vec3(1.f),
+        };
 
-    const VkAccelerationStructureGeometryAabbsDataKHR aabbsData{
+        VulkanApp::Buffer stagingBuffer;
+        stagingBuffer.mByteSize = sizeof(AABB);
+
+        VkBufferCreateInfo stagingbufferCreateInfo{
+                .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                .size = stagingBuffer.mByteSize,
+                .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+        };
+        const VmaAllocationCreateInfo stagingBufferAllocInfo{
+                .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT,
+                .usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+                .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        };
+        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &stagingbufferCreateInfo, &stagingBufferAllocInfo, &stagingBuffer.mBuffer, &stagingBuffer.mAllocation, nullptr));
+
+        void* sdata;
+        vmaMapMemory(mVmaAllocator, stagingBuffer.mAllocation, (void**)&sdata);
+        memcpy(sdata, &aabb, sizeof(AABB));
+        vmaUnmapMemory(mVmaAllocator, stagingBuffer.mAllocation);
+
+        // Create GPU buffer for the AABB.
+        mAabbGeometryBuffer.mByteSize = stagingBuffer.mByteSize;
+        VkBufferCreateInfo deviceBufferCreateInfo{
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = mAabbGeometryBuffer.mByteSize,
+            .usage =
+                VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+        };
+        const VmaAllocationCreateInfo deviceBufferAllocInfo{ .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, };
+        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &deviceBufferCreateInfo, &deviceBufferAllocInfo, &mAabbGeometryBuffer.mBuffer, &mAabbGeometryBuffer.mAllocation, nullptr));
+        mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, mAabbGeometryBuffer.mBuffer, mAabbGeometryBuffer.mAllocation);});
+
+
+        VkCommandBuffer cmdBuf = AllocateAndBeginOneTimeCommandBuffer(mDevice, mCommandPool);
+        {
+            const VkBufferCopy copy{ .srcOffset = 0, .dstOffset = 0, .size = mAabbGeometryBuffer.mByteSize };
+            vkCmdCopyBuffer(cmdBuf, stagingBuffer.mBuffer, mAabbGeometryBuffer.mBuffer, 1, &copy);
+        }
+        EndSubmitWaitAndFreeCommandBuffer(mDevice, mComputeQueue, mCommandPool, cmdBuf);
+        vmaDestroyBuffer(mVmaAllocator, stagingBuffer.mBuffer, stagingBuffer.mAllocation);
+    }
+
+    const uint32_t kAabbCount = 1;
+    const VkAccelerationStructureGeometryAabbsDataKHR aabbData{
         .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_AABBS_DATA_KHR,
-        .data = {.deviceAddress = GetBufferDeviceAddress(mDevice, mAABBSphereBuffer.mBuffer)}, 
+        .data = {.deviceAddress = GetBufferDeviceAddress(mDevice, mAabbGeometryBuffer.mBuffer)},
         .stride = sizeof(AABB)
     };
 
     const VkAccelerationStructureGeometryKHR geometry{
-        .sType          = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
-        .geometryType   = VK_GEOMETRY_TYPE_AABBS_KHR,
-        .geometry       = {.aabbs = aabbsData},
-        .flags          = VK_GEOMETRY_OPAQUE_BIT_KHR,
+        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
+        .geometryType = VK_GEOMETRY_TYPE_AABBS_KHR,
+        .geometry = {.aabbs = aabbData},
+        .flags = VK_GEOMETRY_OPAQUE_BIT_KHR,
     };
 
     // This structure stores all the geometry and type data necessary for building the blas.
@@ -260,23 +353,9 @@ void VulkanApp::initSphereBLAS()
     // The following structure stores the sizes required for the acceleration structure
     // We query the sizes, which will be filled in the BuildSizesInfo structure. 
     VkAccelerationStructureBuildSizesInfoKHR    buildSizesInfo{ .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
-    vkGetAccelerationStructureBuildSizesKHR(mDevice, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildGeometryInfo, &kSphereCount, &buildSizesInfo);
+    vkGetAccelerationStructureBuildSizesKHR(mDevice, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildGeometryInfo, &kAabbCount, &buildSizesInfo);
 
-    // Allocate a GPU scratch buffer holding the temporary data of the acceleration structure builder.
-    VulkanApp::Buffer   scratchBuffer;
-    {
-        const VkBufferCreateInfo scratchBufCreateInfo{
-            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .size = buildSizesInfo.buildScratchSize ,
-            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-            .sharingMode = VK_SHARING_MODE_EXCLUSIVE
-        };
-        const VmaAllocationCreateInfo scratchBufAllocCreateInfo{.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE};
-        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &scratchBufCreateInfo, &scratchBufAllocCreateInfo, &scratchBuffer.mBuffer, &scratchBuffer.mAllocation, nullptr));
-    }
-    const auto scratchAddress = GetBufferDeviceAddress(mDevice, scratchBuffer.mBuffer);
-
-    // Create a GPU buffer for the BLAS.
+    // Create blas handle and GPU buffer that will store the data.
     {
         const VkBufferCreateInfo blasBufferCreateInfo{
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -285,152 +364,21 @@ void VulkanApp::initSphereBLAS()
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE
         };
         const VmaAllocationCreateInfo blasBufferAllocInfo{ .usage = VMA_MEMORY_USAGE_AUTO };
-        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &blasBufferCreateInfo, &blasBufferAllocInfo, &mSphereBlasBuffer.mBuffer, &mSphereBlasBuffer.mAllocation, nullptr));
-        mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, mSphereBlasBuffer.mBuffer, mSphereBlasBuffer.mAllocation);});
-    }
+        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &blasBufferCreateInfo, &blasBufferAllocInfo, &mAabbBlas.mData.mBuffer, &mAabbBlas.mData.mAllocation, nullptr));
+        mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, mAabbBlas.mData.mBuffer, mAabbBlas.mData.mAllocation);});
 
-    // Allocate memory for a blas.
-    {
         const VkAccelerationStructureCreateInfoKHR blasCreateInfo{
             .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,
-            .buffer = mSphereBlasBuffer.mBuffer,
-            .size = buildSizesInfo.accelerationStructureSize,                     // Size of the AS.
-            .type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR              //Type of the AS (BLAS in this case).
-        };
-        vkCreateAccelerationStructureKHR(mDevice, &blasCreateInfo, nullptr, &mSphereBlas);
-        mDeletionQueue.push_function([&]() {vkDestroyAccelerationStructureKHR(mDevice, mSphereBlas, nullptr);});
-    }
-
-    // Build the blas in a command buffer.
-    VkCommandBuffer cmdBuf = AllocateAndBeginOneTimeCommandBuffer(mDevice, mCommandPool);
-    {
-        // We can fill the rest of the buildGeometry struct.
-        buildGeometryInfo.dstAccelerationStructure = mSphereBlas;
-        buildGeometryInfo.scratchData.deviceAddress = GetBufferDeviceAddress(mDevice, scratchBuffer.mBuffer);
-        VkAccelerationStructureBuildRangeInfoKHR buildRangeInfo{
-            .primitiveCount = kSphereCount, 
-            .primitiveOffset = 0,
-            .firstVertex = 0,
-            .transformOffset = 0,
-        };
-
-        const VkAccelerationStructureBuildRangeInfoKHR* pRangeInfos = &buildRangeInfo;
-        vkCmdBuildAccelerationStructuresKHR(cmdBuf, 1, &buildGeometryInfo, &pRangeInfos);
-    }
-    EndSubmitWaitAndFreeCommandBuffer(mDevice, mComputeQueue, mCommandPool, cmdBuf);
-
-    // We no longer need the scratch buffer.
-    vmaDestroyBuffer(mVmaAllocator, scratchBuffer.mBuffer, scratchBuffer.mAllocation);
-}
-
-
-struct SphereInstance
-{
-    glm::mat4 transform;
-    uint32_t materialID; //Corresponds to instanceShaderBindingTableRecordOffset.
-};
-
-void AddSphereInstance(glm::mat4 transform, int materialID)
-{
-
-}
-
-void VulkanApp::initSphereTLAS()
-{
-    // Create an instance referring to a blas. In this scene, we use a single instance with an identity transform.
-    std::array< VkAccelerationStructureInstanceKHR, 1> instances;
-    constexpr uint32_t instanceCount = instances.size();
-    {
-        VkTransformMatrixKHR transform = {};
-        transform.matrix[0][0] = transform.matrix[1][1] = transform.matrix[2][2] = 1.f;
-        instances[0] = {
-           .transform = transform,
-           .instanceCustomIndex = 0,                                                    // We have no use for the custom index.
-           .mask = 0xFF,                                                                // No masking. Ray will always be visible.
-           .instanceShaderBindingTableRecordOffset = 0,                                 // We use this to determine the material of the surface.
-           .flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR,          // No face culling, etc.
-           .accelerationStructureReference = getBlasDeviceAddress(mDevice, mSphereBlas) 
-        };
-    }
-
-    // Upload instances to the device via a staging buffer.
-    {
-        const VkBufferCreateInfo instanceBufCreateInfo{
-            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .size = sizeof(VkAccelerationStructureInstanceKHR) * instances.size(),
-            .usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-        };
-        VmaAllocationCreateInfo InstanceBufAllocCreateInfo{
-        .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT,
-        .usage = VMA_MEMORY_USAGE_AUTO, // Let the allocator decide which memory type to use.
-        .requiredFlags =
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | // Specify that the buffer may be mapped. 
-            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | // 
-            VK_MEMORY_PROPERTY_HOST_CACHED_BIT     // Without this flag, every read of the buffer's memory requires a fetch from GPU memory!
-        };
-        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &instanceBufCreateInfo, &InstanceBufAllocCreateInfo, &mSphereTlasInstanceBuffer.mBuffer, &mSphereTlasInstanceBuffer.mAllocation, nullptr));
-        mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, mSphereTlasInstanceBuffer.mBuffer, mSphereTlasInstanceBuffer.mAllocation);});
-
-        void* data;
-        vmaMapMemory(mVmaAllocator, mSphereTlasInstanceBuffer.mAllocation, (void**)&data);
-        memcpy(data, instances.data(), sizeof(VkAccelerationStructureInstanceKHR) * instances.size());
-        vmaUnmapMemory(mVmaAllocator, mSphereTlasInstanceBuffer.mAllocation);
-    }
-
-    //=======================================================
-    //The rest is essentially the same as how we made the blas.
-    //=======================================================
-
-    // Specify shape and type of geometry for the AS.
-    const VkAccelerationStructureGeometryInstancesDataKHR instancesData{
-        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR,
-        .arrayOfPointers = VK_FALSE,  // We are not using an array of pointers, just a flat buffer
-        .data = {.deviceAddress = GetBufferDeviceAddress(mDevice, mSphereTlasInstanceBuffer.mBuffer)}
-    };
-    const VkAccelerationStructureGeometryKHR asGeometry{
-        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
-        .geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR,
-        .geometry = {.instances = instancesData}
-    };
-
-
-    VkAccelerationStructureBuildGeometryInfoKHR buildGeometryInfo{
-        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
-        .type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
-        .flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR,
-        .mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR,
-        .srcAccelerationStructure = VK_NULL_HANDLE,
-        .geometryCount = 1,
-        .pGeometries = &asGeometry,
-    };
-    VkAccelerationStructureBuildSizesInfoKHR buildSizesInfo = { .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
-    vkGetAccelerationStructureBuildSizesKHR(mDevice, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildGeometryInfo, &instanceCount, &buildSizesInfo);
-
-    // Create a GPU buffer for the TLAS.
-    {
-        const VkBufferCreateInfo tlasBufCreateInfo{
-            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .buffer = mAabbBlas.mData.mBuffer,
             .size = buildSizesInfo.accelerationStructureSize,
-            .usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-            .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+            .type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR
         };
-        const VmaAllocationCreateInfo tlasBufAllocInfo{ .usage = VMA_MEMORY_USAGE_AUTO };
-        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &tlasBufCreateInfo, &tlasBufAllocInfo, &mSphereTlasBuffer.mBuffer, &mSphereTlasBuffer.mAllocation, nullptr));
-        mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, mSphereTlasBuffer.mBuffer, mSphereTlasBuffer.mAllocation);});
-    }
-    // Allocate memory for a tlas
-    {
-        const VkAccelerationStructureCreateInfoKHR tlasCreateInfo{
-            .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,
-            .buffer = mSphereTlasBuffer.mBuffer,
-            .size = buildSizesInfo.accelerationStructureSize,
-            .type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR
-        };
-        vkCreateAccelerationStructureKHR(mDevice, &tlasCreateInfo, nullptr, &mSphereTlas);
-        mDeletionQueue.push_function([&]() {vkDestroyAccelerationStructureKHR(mDevice, mSphereTlas, nullptr);});
+        vkCreateAccelerationStructureKHR(mDevice, &blasCreateInfo, nullptr, &mAabbBlas.mHandle);
+        mDeletionQueue.push_function([&]() {vkDestroyAccelerationStructureKHR(mDevice, mAabbBlas.mHandle, nullptr);});
     }
 
-    // Create scratch buffer for the tlas.
+
+    // Allocate a GPU scratch buffer holding the temporary data of the acceleration structure builder.
     VulkanApp::Buffer   scratchBuffer;
     {
         const VkBufferCreateInfo scratchBufCreateInfo{
@@ -442,23 +390,150 @@ void VulkanApp::initSphereTLAS()
         const VmaAllocationCreateInfo scratchBufAllocCreateInfo{ .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE };
         VK_CHECK(vmaCreateBuffer(mVmaAllocator, &scratchBufCreateInfo, &scratchBufAllocCreateInfo, &scratchBuffer.mBuffer, &scratchBuffer.mAllocation, nullptr));
     }
+
+    // Build the blas in a command buffer.
+    VkCommandBuffer cmdBuf = AllocateAndBeginOneTimeCommandBuffer(mDevice, mCommandPool);
+    {
+        // We can fill the rest of the buildGeometry struct.
+        buildGeometryInfo.dstAccelerationStructure = mAabbBlas.mHandle;
+        buildGeometryInfo.scratchData.deviceAddress = GetBufferDeviceAddress(mDevice, scratchBuffer.mBuffer);
+        const VkAccelerationStructureBuildRangeInfoKHR buildRangeInfo{ kAabbCount, 0, 0, 0 };
+        const VkAccelerationStructureBuildRangeInfoKHR* pRangeInfos = &buildRangeInfo;
+        vkCmdBuildAccelerationStructuresKHR(cmdBuf, 1, &buildGeometryInfo, &pRangeInfos);
+    }
+    EndSubmitWaitAndFreeCommandBuffer(mDevice, mComputeQueue, mCommandPool, cmdBuf);
+
+    // We no longer need the scratch buffer.
+    vmaDestroyBuffer(mVmaAllocator, scratchBuffer.mBuffer, scratchBuffer.mAllocation);
+}
+
+void VulkanApp::initSceneTLAS()
+{
+    // Create an instance for each sphere in the scene.
+    std::vector<VkAccelerationStructureInstanceKHR> instances;
+    for (uint32_t i = 0; i < mScene.mSpheres.size(); ++i)
+    {
+        glm::mat4 transform = glm::translate(glm::mat4(1.f), mScene.mSpheres[i].center);
+        transform = glm::scale(transform, glm::vec3(mScene.mSpheres[i].radius));
+
+        instances.push_back(VkAccelerationStructureInstanceKHR{
+           .transform = glmMat4ToVkTransformMatrixKHR(transform),
+           .instanceCustomIndex = i,                                                    // We use  custom index to determine whether geometry is a quad, sphere or AABB.
+           .mask = 0xFF,                                                                // No masking. Ray will always be visible.
+           .instanceShaderBindingTableRecordOffset = mScene.mSpheres[i].material,       // We use this to determine the material of the surface.
+           .flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR,          // No face culling, etc.
+           .accelerationStructureReference = getBlasDeviceAddress(mDevice, mAabbBlas.mHandle) // For spheres, use the address of the AABB BLAS.
+        });
+    }
+    const uint32_t kInstanceCount = instances.size();
+
+    // Create instances for quads...
+
+    // Create instances for Triangle Meshes...
+
+
+
+    // Upload instanceData to the device via a staging buffer.
+    {
+        const VkBufferCreateInfo instanceBufCreateInfo{
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = sizeof(VkAccelerationStructureInstanceKHR) * instances.size(),
+            .usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+        };
+        const VmaAllocationCreateInfo instanceBufAllocCreateInfo{
+        .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT,
+        .usage = VMA_MEMORY_USAGE_AUTO, // Let the allocator decide which memory type to use.
+        .requiredFlags =
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | // Specify that the buffer may be mapped. 
+            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | // 
+            VK_MEMORY_PROPERTY_HOST_CACHED_BIT     // Without this flag, every read of the buffer's memory requires a fetch from GPU memory!
+        };
+        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &instanceBufCreateInfo, &instanceBufAllocCreateInfo, &mTlasInstanceBuffer.mBuffer, &mTlasInstanceBuffer.mAllocation, nullptr));
+        mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, mTlasInstanceBuffer.mBuffer, mTlasInstanceBuffer.mAllocation);});
+
+        void* data;
+        vmaMapMemory(mVmaAllocator, mTlasInstanceBuffer.mAllocation, (void**)&data);
+        memcpy(data, instances.data(), sizeof(VkAccelerationStructureInstanceKHR) * instances.size());
+        vmaUnmapMemory(mVmaAllocator, mTlasInstanceBuffer.mAllocation);
+    }
+
+    //=======================================================
+    //The rest is essentially the same as how we make a blas.
+    //=======================================================
+
+    // Specify shape and type of geometry for the AS.
+    const VkAccelerationStructureGeometryInstancesDataKHR instancesData{
+        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR,
+        .arrayOfPointers = VK_FALSE,  // We are not using an array of pointers, just a flat buffer
+        .data = {.deviceAddress = GetBufferDeviceAddress(mDevice, mTlasInstanceBuffer.mBuffer)}
+    };
+    const VkAccelerationStructureGeometryKHR asGeometry{
+        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
+        .geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR,
+        .geometry = {.instances = instancesData}
+    };
+
+    VkAccelerationStructureBuildGeometryInfoKHR buildGeometryInfo{
+        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
+        .type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
+        .flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR,
+        .mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR,
+        .srcAccelerationStructure = VK_NULL_HANDLE,
+        .geometryCount = 1,
+        .pGeometries = &asGeometry,
+    };
+    VkAccelerationStructureBuildSizesInfoKHR buildSizesInfo = { .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
+    vkGetAccelerationStructureBuildSizesKHR(mDevice, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildGeometryInfo, &kInstanceCount, &buildSizesInfo);
+
+    // Create tlas handle and GPU buffer that will store the data.
+    {
+        const VkBufferCreateInfo tlasBufCreateInfo{
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = buildSizesInfo.accelerationStructureSize,
+            .usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+        };
+        const VmaAllocationCreateInfo tlasBufAllocInfo{ .usage = VMA_MEMORY_USAGE_AUTO };
+        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &tlasBufCreateInfo, &tlasBufAllocInfo, &mTlas.mData.mBuffer, &mTlas.mData.mAllocation, nullptr));
+        mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, mTlas.mData.mBuffer, mTlas.mData.mAllocation);});
+
+        const VkAccelerationStructureCreateInfoKHR tlasCreateInfo{
+            .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,
+            .buffer = mTlas.mData.mBuffer,
+            .size = buildSizesInfo.accelerationStructureSize,
+            .type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR
+        };
+        vkCreateAccelerationStructureKHR(mDevice, &tlasCreateInfo, nullptr, &mTlas.mHandle);
+        mDeletionQueue.push_function([&]() {vkDestroyAccelerationStructureKHR(mDevice, mTlas.mHandle, nullptr);});
+    }
+
+    // Create scratch buffer for the tlas.
+    VulkanApp::Buffer   scratchBuffer;
+    const VkBufferCreateInfo scratchBufCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = buildSizesInfo.buildScratchSize ,
+        .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+    };
+    const VmaAllocationCreateInfo scratchBufAllocCreateInfo{ .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE };
+    VK_CHECK(vmaCreateBuffer(mVmaAllocator, &scratchBufCreateInfo, &scratchBufAllocCreateInfo, &scratchBuffer.mBuffer, &scratchBuffer.mAllocation, nullptr));
     const auto scratchAddress = GetBufferDeviceAddress(mDevice, scratchBuffer.mBuffer);
 
     // Build the TLAS.
     VkCommandBuffer cmdBuf = AllocateAndBeginOneTimeCommandBuffer(mDevice, mCommandPool);
     {
-
         // Update build info
-        buildGeometryInfo.dstAccelerationStructure = mSphereTlas;
+        buildGeometryInfo.dstAccelerationStructure = mTlas.mHandle;
         buildGeometryInfo.scratchData.deviceAddress = scratchAddress;
 
-        const VkAccelerationStructureBuildRangeInfoKHR buildOffsetInfo{ instances.size(), 0, 0, 0 };
+        const VkAccelerationStructureBuildRangeInfoKHR buildOffsetInfo{ kInstanceCount, 0, 0, 0 };
         const VkAccelerationStructureBuildRangeInfoKHR* pBuildOffsetInfo = &buildOffsetInfo;
         vkCmdBuildAccelerationStructuresKHR(cmdBuf, 1, &buildGeometryInfo, &pBuildOffsetInfo);
     }
     EndSubmitWaitAndFreeCommandBuffer(mDevice, mComputeQueue, mCommandPool, cmdBuf);
 
     vmaDestroyBuffer(mVmaAllocator, scratchBuffer.mBuffer, scratchBuffer.mAllocation);
+
 }
 
 void VulkanApp::initImage()
@@ -555,14 +630,14 @@ void VulkanApp::initDescriptorSets()
         .pBufferInfo = &imageBufferDescriptor
     };
 
-    const VkWriteDescriptorSetAccelerationStructureKHR sphereTlasDescriptor{
+    const VkWriteDescriptorSetAccelerationStructureKHR tlasDescriptor{
     .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR,
     .accelerationStructureCount = 1,
-    .pAccelerationStructures = &mSphereTlas
+    .pAccelerationStructures = &mTlas.mHandle
     };
     writeDescriptorSets[1] = {
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .pNext = &sphereTlasDescriptor,  // This is important: the acceleration structure info goes in pNext
+        .pNext = &tlasDescriptor,  // This is important: the acceleration structure info goes in pNext
         .dstSet = mDescriptorSet,
         .dstBinding = 1,
         .dstArrayElement = 0,
@@ -570,7 +645,7 @@ void VulkanApp::initDescriptorSets()
         .descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
     };
 
-    const VkDescriptorBufferInfo sphereBufferDescriptor{ .buffer = mSphereBuffer.mBuffer, .range = mSphereBuffer.mByteSize };
+    const VkDescriptorBufferInfo sphereBufferDescriptor{ .buffer = mScene.mSphereBuffer.mBuffer, .range = mScene.mSphereBuffer.mByteSize };
     writeDescriptorSets[2] = {
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
         .dstSet = mDescriptorSet,
@@ -587,7 +662,7 @@ void VulkanApp::initDescriptorSets()
 void VulkanApp::initComputePipeline()
 {
     // Load shader module.
-    mComputeShader = createShaderModule(mDevice, fs::path("shaders/ch10/ch10.spv"));
+    mComputeShader = createShaderModule(mDevice, fs::path("shaders/book2/book2.spv"));
     const VkPipelineShaderStageCreateInfo pipelineShaderStageCreateInfo{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
         .stage = VK_SHADER_STAGE_COMPUTE_BIT,
@@ -619,7 +694,7 @@ void VulkanApp::initComputePipeline()
     mDeletionQueue.push_function([&]() {vkDestroyPipeline(mDevice, mComputePipeline, nullptr);});
 }
 
-void VulkanApp::run()
+void VulkanApp::render()
 {
     VkCommandBuffer cmdBuf = AllocateAndBeginOneTimeCommandBuffer(mDevice, mCommandPool);
     {
@@ -646,21 +721,20 @@ void VulkanApp::run()
             0, nullptr, 0, nullptr);                  // No image/buffer memory barriers.
     }
     EndSubmitWaitAndFreeCommandBuffer(mDevice, mComputeQueue, mCommandPool, cmdBuf);
+}
 
+void VulkanApp::writeImage(const fs::path& path)
+{
     // Write the buffer data to an external image.
     void* data;
     vmaMapMemory(mVmaAllocator, mImageBuffer.mAllocation, &data);
-    stbi_write_hdr("../../scenes/ch10.hdr", mWindowExtents.width, mWindowExtents.height, 3, reinterpret_cast<float*>(data));
+    stbi_write_hdr(path.string().data(), mWindowExtents.width, mWindowExtents.height, 3, reinterpret_cast<float*>(data));
     vmaUnmapMemory(mVmaAllocator, mImageBuffer.mAllocation);
 }
 
 
 void VulkanApp::cleanup()
 {
-    // make sure the gpu has stopped doing its things				
     vkDeviceWaitIdle(mDevice);
-
-
-    //flush the global deletion queue
     mDeletionQueue.flush();
 }

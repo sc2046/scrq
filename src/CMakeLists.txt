@@ -1,7 +1,7 @@
 ﻿# Add source to this project's executable.
 add_executable (VkCRT 
 "main.cpp"  
-"app.cpp" "app.h" "chapters/ch8/app.cpp" "chapters/ch8/app.h" "chapters/ch8/main.cpp" "chapters/ch10/app.cpp" "chapters/ch10/app.h" "chapters/ch10/main.cpp" "chapters/ch11/app.cpp" "chapters/ch11/app.h" "chapters/ch11/main.cpp")
+"app.cpp" "app.h"  "chapters/book1/app.cpp" "chapters/book1/app.h" "chapters/book1/main.cpp" "chapters/book2/app.cpp" "chapters/book2/app.h" "chapters/book2/main.cpp")
 
 target_link_libraries(VkCRT glfw)
 target_link_libraries(VkCRT vk-bootstrap)
