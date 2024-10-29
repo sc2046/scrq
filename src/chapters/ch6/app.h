@@ -1,9 +1,11 @@
 #pragma once
 
+#include "vk_helpers.h"
 #include "vk_types.h"
 #include "vk_mem_alloc.h"
 
-#include "shader.h"
+#include <host_device_common.h>
+#include <shader.h>
 
 class VulkanApp {
 public:
@@ -15,37 +17,15 @@ public:
 	void initContext(bool validation);
 	void initAllocators();
 	void initImage();
-	void initMesh();
-	void initBLAS();
-	void initTLAS();
+	void initSpheres();
+	void initSphereBLAS();
+	void initSphereTLAS();
 	void initDescriptorSets();
 	void initComputePipeline();
 	
 	void run();
 	void cleanup();
 
-
-	void initSpheres();
-	void initSphereBLAS();
-	void initSphereTLAS();
-
-
-	struct Mesh
-	{
-		std::vector<float> mVertices;
-		std::vector<uint32_t> mIndices;
-		inline static constexpr uint32_t kVertexStride = 3 * sizeof(float);
-	};
-	struct Sphere
-	{
-		glm::vec3	center;
-		float		radius;
-	};
-	struct AABB
-	{
-		glm::vec3 min;
-		glm::vec3 max;
-	};
 	struct Buffer
 	{
 		VkBuffer		mBuffer;
@@ -77,9 +57,6 @@ private:
 	// Buffers
 	//-----------------------------------------------
 	Buffer						mImageBuffer;
-	Buffer						mTriangleBlasBuffer;
-	Buffer						mTriangleTlasBuffer;
-	Buffer						mTriangleTlasInstanceBuffer;
 
 	Buffer						mSphereBlasBuffer;
 	Buffer						mSphereTlasBuffer;
@@ -87,17 +64,11 @@ private:
 
 	// Acceleration structures
 	//-----------------------------------------------
-	VkAccelerationStructureKHR	mTriangleBlas;
-	VkAccelerationStructureKHR	mTriangleTlas;
 	VkAccelerationStructureKHR	mSphereBlas;
 	VkAccelerationStructureKHR	mSphereTlas;
 
 	// Scene Data
 	//-----------------------------------------------
-	Mesh						mMesh;
-	Buffer						mVertexBuffer;
-	Buffer						mIndexBuffer;
-
 	std::vector<Sphere>			mSpheres;
 	Buffer						mSphereBuffer;
 	Buffer						mAABBSphereBuffer; // Need to store AABBs on GPU for the BLAS. (but dont need to store them on cpu, assuming they are static!)
@@ -130,6 +101,4 @@ private:
 		}
 	};
 	DeletionQueue mDeletionQueue;
-
-
 };

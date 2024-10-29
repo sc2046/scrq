@@ -10,11 +10,6 @@ int main()
     engine.initContext(true);
     engine.initAllocators();
     engine.initImage();
-
-    engine.initMesh();
-    engine.initBLAS();
-    engine.initTLAS();
-
     engine.initSpheres();
     engine.initSphereBLAS();
     engine.initSphereTLAS();

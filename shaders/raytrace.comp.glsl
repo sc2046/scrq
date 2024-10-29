@@ -5,9 +5,20 @@
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 layout(binding = 0, set = 0, scalar) buffer storageBuffer {	vec3 imageData[];};
-layout(binding = 1, set = 0) uniform accelerationStructureEXT tlas;
+
+layout(binding = 1, set = 0) uniform accelerationStructureEXT triangleTlas;
 layout(binding = 2, set = 0, scalar) buffer Vertices { vec3 vertices[]; };
 layout(binding = 3, set = 0, scalar) buffer Indices  { uint indices[]; };
+
+layout(binding = 4, set = 0) uniform accelerationStructureEXT sphereTlas;
+struct AABB
+{
+	vec3 min;
+	vec3 max;
+};
+layout(binding = 5, set = 0, scalar) buffer AABBs { AABB aabbs[]; };
+
+
 
 // Random number generation using pcg32i_random_t, using inc = 1. Our random state is a uint.
 uint stepRNG(uint rngState)
@@ -67,36 +78,68 @@ void main()
 
 	// Define the camera.
 	Camera camera;
-	camera.origin = vec3(-0.001, 1.0, 6.0);
-	camera.fovVerticalSlope = 1.0 / 5.0;
+	camera.origin = vec3(0.f, 0.f, 0.f);
+	//camera.fovVerticalSlope = 1.0 / 5.0;
 
 	// The sum of the colors of all of the samples.
 	vec3 pixelColor = vec3(0.f);
 
-	for (int sampleID = 0; sampleID < numSamples; ++sampleID)
-	{
+	//for (int sampleID = 0; sampleID < numSamples; ++sampleID)
+	//{
 		// Generate a ray for this sample
 		Ray ray = generateRay(camera, vec2(pixel) + vec2(stepAndOutputRNGFloat(rngState), stepAndOutputRNGFloat(rngState)));
 		
-		// Add contribution from ray path.
-		pixelColor += rayColor(ray, rngState);
-	}
+		//Initialize a ray query object:
+		rayQueryEXT rayQuery;
+		rayQueryInitializeEXT(
+			rayQuery, sphereTlas,
+			gl_RayFlagsTerminateOnFirstHitEXT,
+			0xFF, ray.origin, 0.f, ray.direction, 10000.f);
 
-	pixelColor /= numSamples;
+		while (rayQueryProceedEXT(rayQuery))
+		{
+			if (rayQueryGetIntersectionTypeEXT(rayQuery, false) == gl_RayQueryCandidateIntersectionAABBEXT)
+			{
+				const vec3 center = vec3(0.f,0.f,-1.f);
+				const float radius = 0.5f;
+				
+				const vec3 oc = center - ray.origin;
+				float a = dot(ray.direction, ray.direction);
+				float b = -2.0 * dot(ray.direction, oc);
+				float c = dot(oc, oc) - radius * radius;
+				float discriminant = b * b - 4 * a * c;
+				if (discriminant >= 0) {
+					pixelColor = vec3(1.f, 0.f, 0.f);
+				}
+
+				//if (opaqueHit) rayQueryGenerateIntersectionEXT(rayQuery, ...);
+			}
+		}
+		// Add contribution from ray path.
+		//pixelColor += rayColor(ray, rngState);
+	//}
+
+	//pixelColor /= numSamples;
 	const uint pixelStart = resolution.x * pixel.y + pixel.x;
 	imageData[pixelStart] = pixelColor;
 }
 
 Ray generateRay(Camera cam, vec2 pixel)
 {
-
-	const vec2 screenUV = vec2(
-		 (2.0 * pixel.x - resolution.x) / resolution.y,    
-		-(2.0 * pixel.y - resolution.y) / resolution.y);  // Flip the y axis
-	
 	Ray ray;
-	ray.origin		= cam.origin;
-	ray.direction	= normalize(vec3(cam.fovVerticalSlope * screenUV.x, cam.fovVerticalSlope * screenUV.y, -1.0));
+
+	float uFovy = 90.f;
+	ray.origin = cam.origin;
+	const vec2 xy = (pixel - resolution / 2.f) / resolution.y;
+	const float z = 1.f / (2.f * tan(radians(uFovy) / 2.f));
+	ray.direction = normalize(vec3(xy.x, -xy.y, -z));
+
+	//const vec2 screenUV = vec2(
+	//	 (2.0 * pixel.x - resolution.x) / resolution.y,    
+	//	-(2.0 * pixel.y - resolution.y) / resolution.y);  // Flip the y axis
+	//
+	//ray.origin		= cam.origin;
+	//ray.direction	= normalize(vec3(cam.fovVerticalSlope * screenUV.x, cam.fovVerticalSlope * screenUV.y, -1.0));
 	return ray;
 }
 
@@ -147,7 +190,7 @@ vec3 rayColor(Ray ray, inout uint rngState)
 		//Initialize a ray query object:
 		rayQueryEXT rayQuery;
 		rayQueryInitializeEXT(
-			rayQuery, tlas,
+			rayQuery, triangleTlas,
 			gl_RayFlagsOpaqueEXT,
 			0xFF, ray.origin, 0.f, ray.direction, 10000.f);
 
@@ -197,9 +240,3 @@ vec3 skyColor(vec3 direction)
 	}
 }
 
-//float uFovy = 90.f;
-//const vec3 cameraOrigin = vec3(-0.001, 1.0, 6.0);
-//const vec3 rayOrigin = cameraOrigin;
-//const vec2 xy = (pixel - resolution / 2.f) / resolution.y;
-//const float z = 1.f / (2.f * tan(radians(uFovy) / 2.f));
-//const vec3 rayDirection = normalize(vec3(xy.x, -xy.y, -z));
