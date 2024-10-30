@@ -11,14 +11,14 @@ layout(binding = 0, set = 0, scalar) buffer storageBuffer { vec3 imageData[]; };
 layout(binding = 1, set = 0) uniform accelerationStructureEXT tlas;
 layout(binding = 2, set = 0, scalar) buffer Spheres { Sphere spheres[]; };
 
-layout(push_constant, scalar) uniform PushConstants 
-{ 
+layout(push_constant, scalar) uniform PushConstants
+{
 	Camera camera;
+	uint numSamples;
+	uint numBounces;
 };
 
 const uvec2 resolution = uvec2(800, 600);
-const uint numSamples = 500;
-const uint numBounces = 16;
 
 vec3 rayColor(Ray ray, inout uint rngState);
 void main()

@@ -5,7 +5,7 @@
 #include "vk_mem_alloc.h"
 
 #include "host_device_common.h"
-#include "shader.h"
+
 
 class VulkanApp {
 public:
@@ -35,6 +35,10 @@ public:
 	bool bUseValidationLayers{ true };
 	VkExtent2D mWindowExtents{ 800, 600 };
 	VkExtent2D mWorkGroupDim{ 16,16 };
+
+	uint32_t mNumSamples{ 500 };
+	uint32_t mNumBounces{ 32 };
+
 
 	void initContext(bool validation);
 	void initAllocators();
@@ -84,7 +88,6 @@ private:
 	//-----------------------------------------------
 	AccelerationStructure		mAabbBlas;
 	Buffer						mAabbGeometryBuffer;
-	// Mesh Blas data...
 	
 	AccelerationStructure		mTlas;
 	Buffer						mTlasInstanceBuffer;  // Stores the per-instance data (matrices, materialID etc...) 
@@ -93,12 +96,9 @@ private:
 	//-----------------------------------------------
 	Scene						mScene;
 
-	// Shaders
+	// Pipeline Data
 	//-----------------------------------------------
 	VkShaderModule				mComputeShader;
-
-	// Pipelines
-	//-----------------------------------------------
 	VkPipelineLayout			mPipelineLayout;
 	VkPipeline					mComputePipeline;
 	

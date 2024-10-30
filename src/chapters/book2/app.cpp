@@ -267,7 +267,7 @@ VulkanApp::Scene createBook2Ch7Scene()
 // Uploads all scene geometry into GPU buffers;
 void VulkanApp::uploadScene()
 {
-    mScene = createBook1Ch11Scene();
+    mScene = createBook2Ch7Scene();
 
     VulkanApp::Buffer sphereStagingBuffer;
     sphereStagingBuffer.mByteSize = mScene.mSpheres.size() * sizeof(Sphere);
@@ -503,6 +503,9 @@ void VulkanApp::initSceneTLAS()
         vmaMapMemory(mVmaAllocator, mTlasInstanceBuffer.mAllocation, (void**)&data);
         memcpy(data, instances.data(), sizeof(VkAccelerationStructureInstanceKHR) * instances.size());
         vmaUnmapMemory(mVmaAllocator, mTlasInstanceBuffer.mAllocation);
+
+
+
     }
 
     //=======================================================
@@ -608,6 +611,7 @@ void VulkanApp::initImage()
     }
     mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, mImageBuffer.mBuffer, mImageBuffer.mAllocation);});
 }
+
 
 void VulkanApp::initDescriptorSets()
 {
@@ -721,7 +725,7 @@ void VulkanApp::initComputePipeline()
 
     // Create a push constant range describing the amount of data for the push constants.
     static_assert(sizeof(Camera) % 4 == 0, "Push constant size must be a multiple of 4 per the Vulkan spec!");
-    const VkPushConstantRange pushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Camera) };
+    const VkPushConstantRange pushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Camera) + 2*sizeof(uint32_t)};
 
     const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
@@ -759,6 +763,8 @@ void VulkanApp::render()
 
         // Push push constants:
         vkCmdPushConstants(cmdBuf, mPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Camera), &mScene.mCamera);                          
+        vkCmdPushConstants(cmdBuf, mPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, sizeof(Camera), sizeof(uint), &mNumSamples);
+        vkCmdPushConstants(cmdBuf, mPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, sizeof(Camera) + sizeof(uint), sizeof(uint), &mNumBounces);
 
         // Run the compute shader.
         vkCmdDispatch(cmdBuf, std::ceil(mWindowExtents.width / 16), std::ceil(mWindowExtents.height / 16), 1);

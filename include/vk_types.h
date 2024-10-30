@@ -4,6 +4,7 @@
 #include <deque>
 #include <filesystem>
 #include <functional>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <optional>

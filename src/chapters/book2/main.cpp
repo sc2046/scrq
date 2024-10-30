@@ -60,7 +60,7 @@ int main()
         auto begin = std::chrono::high_resolution_clock::now();
         engine.render();
         auto end = std::chrono::high_resolution_clock::now();
-        fmt::println("Render time: {}ms", std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count());
+        fmt::println("Render time: {}ms with {} samples, {} bounces", std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count(), engine.mNumSamples, engine.mNumBounces);
     }
 
     {
