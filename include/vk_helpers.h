@@ -2,6 +2,19 @@
 
 #include <vk_types.h>
 
+struct Buffer
+{
+    VkBuffer		mBuffer;
+    VmaAllocation	mAllocation;
+    uint32_t		mByteSize;
+};
+
+struct AccelerationStructure
+{
+    VkAccelerationStructureKHR	mHandle;
+    Buffer						mData; // Stores the Acceleration structure data.
+};
+
 inline VkDeviceAddress GetBufferDeviceAddress(VkDevice device, VkBuffer buffer)
 {
     VkBufferDeviceAddressInfo addressInfo{ .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .buffer = buffer };

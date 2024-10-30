@@ -19,20 +19,18 @@ struct HitInfo
 
 
 
-Ray generateRay(Camera cam, vec2 pixel, uvec2 resolution)
+ void generateRay(Camera cam, vec2 pixel, uvec2 resolution, out vec3 origin, out vec3 direction)
 {
 	const float image_plane_height	= 2.f * cam.focalDistance * tan(radians(cam.fovY) / 2.f);
 	const float image_plane_width	= image_plane_height * (float(resolution.x) / resolution.y);
 
-	Ray ray;
-
 	// Define the ray in local coordinates;
-	ray.origin = vec3(0.f);
+	origin = vec3(0.f);
 	const float pixel_width		= image_plane_width / float(resolution.x);
 	const float pixel_height	= image_plane_height/ float(resolution.y);
-	ray.direction.x = -image_plane_width / 2.f + pixel.x * pixel_width;
-	ray.direction.y =  image_plane_height / 2.f - pixel.y * pixel_height;
-	ray.direction.z = -1.f;
+	direction.x = -image_plane_width / 2.f + pixel.x * pixel_width;
+	direction.y =  image_plane_height / 2.f - pixel.y * pixel_height;
+	direction.z = -1.f;
 
 	// Determine the world transform for the camera.
 	const vec3 up	= vec3(0, 1, 0);
@@ -48,13 +46,11 @@ Ray generateRay(Camera cam, vec2 pixel, uvec2 resolution)
 	);
 
 	// Transform the ray into world space;
-	const vec4 oTransform	= transform * vec4(ray.origin, 1.f);
-	ray.origin				= oTransform.xyz / oTransform.w;
+	const vec4 oTransform	= transform * vec4(origin, 1.f);
+	origin					= oTransform.xyz / oTransform.w;
 
-	const vec4 dTransform	= transform * vec4(ray.direction, 0.f);
-	ray.direction			= normalize(dTransform.xyz);
-
-	return ray;
+	const vec4 dTransform	= transform * vec4(direction, 0.f);
+	direction				= normalize(dTransform.xyz);
 }
 
 // ==============================================================
@@ -63,45 +59,82 @@ Ray generateRay(Camera cam, vec2 pixel, uvec2 resolution)
 // into the local space of the surface. 
 // ==============================================================
 
-void rayWorldToObjectTransform(mat4 worldToLocal, vec3 worldOrigin, vec3 worldDir, out vec3 localOrigin, out vec3 localDirection)
+bool hitSphere(vec3 worldO, vec3 worldD, mat4x3 worldToObject, mat4x3 objectToWorld, inout HitInfo hitInfo)
 {
-	//const mat4 worldToLocal = rayQueryGetIntersectionWorldToObjectEXT(rayQuery, committed);
+	const vec3 localO = worldToObject * vec4(worldO, 1.0f);
+	const vec3 localD = normalize(worldToObject * vec4(worldD, 0.f));
 
-	const vec4 homogeneous_result = worldToLocal * vec4(worldOrigin, 1.f);
-	localOrigin = homogeneous_result.xyz / homogeneous_result.w;
+	const vec3 oc = localO;
+	const float a = dot(localD,localD);
+	const float half_b = dot(oc, localD);
+	const float c = dot(oc,oc) - 1.f;	//	TODO: in local space, radius is always 1?
 
-	const vec4 homogeneous_dir = worldToLocal * vec4(worldDir, 0.f);
-	localDirection = homogeneous_dir.xyz;
+	const float discriminant = half_b * half_b - a * c;
+	if (discriminant < 0) return false;
 
+	// Find the nearest root that lies in the acceptable range.
+	float sqrtd = sqrt(discriminant);
+	float root = (-half_b - sqrtd) / a;
+	if (root <= 0.001f || root >= hitInfo.t)
+	{
+		//Try other root
+		root = (-half_b + sqrtd) / a;
+		if (root <= 0.001f || root >= hitInfo.t)
+			return false;
+	}
+
+	const float tHit	= root;					// Ray parameter in object space
+	const vec3 p		= localO + tHit * localD;	// Hit point in local space
+	const vec3 n		= p;					// Surface normal in local space
+
+	hitInfo.t	= tHit;									//t is unchanged because linear maps preserve distances!
+	hitInfo.p	= worldToObject * vec4(localO, 1.f);
+	hitInfo.gn	= normalize((n * worldToObject).xyz);
+	hitInfo.sn	= hitInfo.gn;								// For a sphere, the shading normal is the same as the geometric normal.
+	hitInfo.color = hitInfo.sn;
+
+	//const auto& [phi, theta] = Spherical::direction_to_spherical_coordinates(normalize(n));
+	//const Vec2f uv = Vec2f(phi * INV_TWOPI, theta * INV_PI);
+	//hit.uv = uv;
+
+	return true;
 }
+
 
 /// Intersects a ray against a sphere.
 /// If a valid intersection was found, fills the hitInfo struct, and returns true.
 /// Otherwise, returns false.
-bool hitSphere(Sphere s, Ray r , inout HitInfo hitInfo)
+bool hitSphere(Sphere s, vec3 worldRayO, vec3 worldRayD, inout HitInfo hitInfo)
 {
-	const vec3  oc = r.origin - s.center;
-	const float a = dot(r.direction, r.direction);
-	const float b = 2.0 * dot(oc, r.direction);
+	const vec3  oc = worldRayO - s.center;
+	const float a = dot(worldRayD, worldRayD);
+	const float b = 2.0 * dot(oc, worldRayD);
 	const float c = dot(oc, oc) - s.radius * s.radius;
 	const float discriminant = b * b - 4 * a * c;
 
-	if (discriminant < 0.f) 
+	if (discriminant < 0.f)
 		return false;
 
-	const float tHit = (-b - sqrt(discriminant)) / (2.f * a);
-	if (tHit < 0.f || tHit > hitInfo.t)
-		return false;
-	
+	const float sqrtd = sqrt(discriminant);
+	float tHit = (-b - sqrtd) / (2.f * a);
+	if (tHit <= 0.001f || tHit >= hitInfo.t)
+	{
+		//Try other root
+		tHit = (-b + sqrtd) / a;
+		if (tHit <= 0.001f || tHit >= hitInfo.t)
+			return false;
+	}
+
 	hitInfo.t = tHit;
-	hitInfo.p = r.origin + tHit * r.direction;
+	hitInfo.p = worldRayO + tHit * worldRayD;
 	hitInfo.gn = normalize(hitInfo.p - s.center);
 	hitInfo.sn = hitInfo.gn;
-	hitInfo.material	= s.material;
-	hitInfo.color		= s.color;
-	
+	hitInfo.material = s.material;
+	hitInfo.color = s.color;
+
 	return true;
 }
+
 
 // ==============================================================
 // RNG
@@ -201,36 +234,36 @@ vec3 offsetPositionAlongNormal(vec3 worldPosition, vec3 normal)
 // Materials
 // ==============================================================
 
-bool scatterDiffuse(Ray ray, HitInfo hitInfo, out vec3 attenuation, out Ray scattered, inout uint rngState)
+bool scatterDiffuse(vec3 inO, vec3 inD, HitInfo hitInfo, out vec3 attenuation, out vec3 scatterO, out vec3 scatterD, inout uint rngState)
 {
 	attenuation = hitInfo.color;
 
 	// Avoid self-shadowing.
-	scattered.origin = offsetPositionAlongNormal(hitInfo.p, hitInfo.gn);
+	scatterO = offsetPositionAlongNormal(hitInfo.p, hitInfo.gn);
 
 	const float theta = 2.f * M_PI * stepAndOutputRNGFloat(rngState);  // Random in [0, 2pi]
 	const float u = 2.0 * stepAndOutputRNGFloat(rngState) - 1.0;   // Random in [-1, 1]
 	const float r = sqrt(1.0 - u * u);
 	const vec3  direction = hitInfo.gn + vec3(r * cos(theta), r * sin(theta), u);
-	scattered.direction = normalize(direction);
+	scatterD = normalize(direction);
 
 	return true;
 }
 
-bool scatterMetal(Ray ray, HitInfo hitInfo, out vec3 attenuation, out Ray scattered, inout uint rngState)
+bool scatterMetal(vec3 inO, vec3 inD, HitInfo hitInfo, out vec3 attenuation, out vec3 scatterO, out vec3 scatterD, inout uint rngState)
 {
 	attenuation = hitInfo.color;
 
 	// Avoid self-shadowing.
-	scattered.origin = offsetPositionAlongNormal(hitInfo.p, hitInfo.gn);
+	scatterO = offsetPositionAlongNormal(hitInfo.p, hitInfo.gn);
 
-	const vec3 reflected = reflect(ray.direction, hitInfo.gn);
-	scattered.direction = normalize(reflected);
+	const vec3 reflected = reflect(inD, hitInfo.gn);
+	scatterD = normalize(reflected);
 
 	return true;
 }
 
-bool scatterDielectric(Ray ray, HitInfo hitInfo, out vec3 attenuation, out Ray scattered, inout uint rngState)
+bool scatterDielectric(vec3 inO, vec3 inD, HitInfo hitInfo, out vec3 attenuation, out vec3 scatterO, out vec3 scatterD, inout uint rngState)
 {
 	attenuation = vec3(1.f, 1.f, 1.f);
 
@@ -240,23 +273,23 @@ bool scatterDielectric(Ray ray, HitInfo hitInfo, out vec3 attenuation, out Ray s
 	// Assume initially that ray is coming from outside the surface.
 	float eta = 1.f / ior;
 	vec3 n = hitInfo.gn;
-	if (dot(ray.direction, hitInfo.gn) > 0.f) {
+	if (dot(inD, hitInfo.gn) > 0.f) {
 		// Ray is coming from inside the surface. Flip eta and reverse normal.
 		eta = ior;
 		n =  -hitInfo.gn;
 	}
 
 	vec3 refracted;
-	const bool can_refract		= refract(normalize(ray.direction), normalize(n), eta, refracted);
-	const float fresnel			= schlick_reflectance(normalize(ray.direction), hitInfo.gn, 1.f, ior);
+	const bool can_refract		= refract(normalize(inD), normalize(n), eta, refracted);
+	const float fresnel			= schlick_reflectance(normalize(inD), hitInfo.gn, 1.f, ior);
 
 	if (!can_refract || fresnel > stepAndOutputRNGFloat(rngState)) {
-		scattered.origin = offsetPositionAlongNormal(hitInfo.p, n);
-		scattered.direction = normalize(reflect(normalize(ray.direction), normalize(n)));
+		scatterO = offsetPositionAlongNormal(hitInfo.p, n);
+		scatterD= normalize(reflect(normalize(inD), normalize(n)));
 	}
 	else {
-		scattered.origin	= offsetPositionAlongNormal(hitInfo.p, -n);
-		scattered.direction = normalize(refracted);
+		scatterO = offsetPositionAlongNormal(hitInfo.p, -n);
+		scatterD = normalize(refracted);
 	}
 	return true;
 }

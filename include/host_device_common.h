@@ -29,6 +29,13 @@ using vec3 = glm::vec3;
 #define SQRT_TWO     1.41421356237309504880f
 #define INV_SQRT_TWO 0.70710678118654752440f
 
+struct Vertex
+{
+	vec3 position;
+	vec3 normal;
+	vec2 tex;
+};
+
 struct Sphere
 {
 	vec3	center;
@@ -55,10 +62,10 @@ struct Camera
 	float	focalDistance;
 };
 
-struct Ray
-{
-	vec3 origin;
-	vec3 direction;
-};
+//struct Ray
+//{
+//	vec3 origin;
+//	vec3 direction;
+//};
 
 #endif // #ifndef COMMON_H
