@@ -25,6 +25,8 @@ public:
 
 	struct Scene
 	{
+		Camera				mCamera;
+
 		std::vector<Sphere> mSpheres;
 		Buffer				mSphereBuffer;
 	};

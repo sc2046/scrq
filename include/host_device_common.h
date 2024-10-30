@@ -16,6 +16,8 @@ using vec3 = glm::vec3;
 #define DIFFUSE		0
 #define METAL		1
 #define DIELECTRIC	2
+#define LIGHT		3
+
 
 // ==============================================================
 // Constants
@@ -43,10 +45,12 @@ struct AABB
 };
 
 // Right-handed pinhole camera with (0,1,0) as up.
+// Note a non-black background is equivalent to treating the background as a light source.
 struct Camera
 {
 	vec3	center;
 	vec3	eye;
+	vec3	backgroundColor;
 	float	fovY;
 	float	focalDistance;
 };

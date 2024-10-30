@@ -29,7 +29,6 @@ inline glm::vec3 random_vector() {
     return vec3(random_double(), random_double(), random_double());
 }
 
-
 void VulkanApp::initContext(bool validation)
 {
     // Create instance
@@ -147,44 +146,75 @@ void VulkanApp::initAllocators()
     mDeletionQueue.push_function([&]() { vkDestroyCommandPool(mDevice, mCommandPool, nullptr);});
 }
 
-std::vector<Sphere> createCh9Scene()
+VulkanApp::Scene createBook1Ch9Scene()
 {
-    std::vector<Sphere> mSpheres;
-    mSpheres.emplace_back(glm::vec3(0.f, 0.f, -1.f), 0.5f, DIFFUSE, glm::vec3(0.5f));
-    mSpheres.emplace_back(glm::vec3(0.f, -100.5f, -1.f), 100.f, DIFFUSE, glm::vec3(0.5f));
-    return mSpheres;
+    VulkanApp::Scene scene;
+
+    scene.mCamera = {
+        .center = glm::vec3(0.f),
+        .eye = glm::vec3(0.f,0.f,-1.f),
+        .backgroundColor = glm::vec3(1.f),
+        .fovY = 90.f,
+        .focalDistance = 1.f
+    };
+
+    scene.mSpheres.emplace_back(glm::vec3(0.f, 0.f, -1.f), 0.5f, DIFFUSE, glm::vec3(0.5f));
+    scene.mSpheres.emplace_back(glm::vec3(0.f, -100.5f, -1.f), 100.f, DIFFUSE, glm::vec3(0.5f));
+    return scene;
 }
 
-std::vector<Sphere> createCh10Scene()
+VulkanApp::Scene createBook1Ch10Scene()
 {
-    std::vector<Sphere> mSpheres;
+    VulkanApp::Scene scene;
 
-    // Initialize spheres for the scene.
-    mSpheres.emplace_back(glm::vec3(0.0, -100.5, -1.0), 100.0, DIFFUSE, glm::vec3(0.8f,0.8f,0.f));
-    mSpheres.emplace_back(glm::vec3(0.0, 0.0, -1.2), 0.5, DIFFUSE, glm::vec3(0.1f, 0.2f, 0.5f));
-    mSpheres.emplace_back(glm::vec3(-1.0, 0.0, -1.0), 0.5, METAL, glm::vec3(0.8f));
-    mSpheres.emplace_back(glm::vec3(1.0, 0.0, -1.0), 0.5, METAL, glm::vec3(0.8f,0.6f,0.2f));
-    return mSpheres;
+    scene.mCamera = {
+        .center = glm::vec3(0.f),
+        .eye = glm::vec3(0.f,0.f,-1.f),
+        .backgroundColor = glm::vec3(1.f),
+        .fovY = 90.f,
+        .focalDistance = 1.f
+    };
+
+   scene.mSpheres.emplace_back(glm::vec3(0.0, -100.5, -1.0), 100.0, DIFFUSE, glm::vec3(0.8f,0.8f,0.f));
+   scene.mSpheres.emplace_back(glm::vec3(0.0, 0.0, -1.2), 0.5, DIFFUSE, glm::vec3(0.1f, 0.2f, 0.5f));
+   scene.mSpheres.emplace_back(glm::vec3(-1.0, 0.0, -1.0), 0.5, METAL, glm::vec3(0.8f));
+   scene.mSpheres.emplace_back(glm::vec3(1.0, 0.0, -1.0), 0.5, METAL, glm::vec3(0.8f,0.6f,0.2f));
+    return scene;
 }
 
-std::vector<Sphere> createCh11Scene()
+VulkanApp::Scene createBook1Ch11Scene()
 {
-    std::vector<Sphere> mSpheres;
+    VulkanApp::Scene scene;
 
-    // Initialize spheres for the scene.
-    mSpheres.emplace_back(glm::vec3(0.0, -100.5, -1.0), 100.0, DIFFUSE, glm::vec3(0.8f, 0.8f, 0.f));
-    mSpheres.emplace_back(glm::vec3(0.0, 0.0, -1.2), 0.5, DIFFUSE, glm::vec3(0.1f, 0.2f, 0.5f));
-    mSpheres.emplace_back(glm::vec3(-1.0, 0.0, -1.0), 0.5, DIELECTRIC, glm::vec3(1.f)); // note ior is fixed at 1.5 in shader.
-    mSpheres.emplace_back(glm::vec3(1.0, 0.0, -1.0), 0.5, METAL, glm::vec3(0.8f, 0.6f, 0.2f));
-    return mSpheres;
+    scene.mCamera = {
+        .center = glm::vec3(0.f),
+        .eye = glm::vec3(0.f,0.f,-1.f),
+        .backgroundColor = glm::vec3(1.f),
+        .fovY = 90.f,
+        .focalDistance = 1.f
+    };
+
+    scene.mSpheres.emplace_back(glm::vec3(0.0, -100.5, -1.0), 100.0, DIFFUSE, glm::vec3(0.8f, 0.8f, 0.f));
+    scene.mSpheres.emplace_back(glm::vec3(0.0, 0.0, -1.2), 0.5, DIFFUSE, glm::vec3(0.1f, 0.2f, 0.5f));
+    scene.mSpheres.emplace_back(glm::vec3(-1.0, 0.0, -1.0), 0.5, DIELECTRIC, glm::vec3(1.f)); // note ior is fixed at 1.5 in shader.
+    scene.mSpheres.emplace_back(glm::vec3(1.0, 0.0, -1.0), 0.5, METAL, glm::vec3(0.8f, 0.6f, 0.2f));
+    return scene;
 }
 
-std::vector<Sphere> createCh14Scene()
+VulkanApp::Scene createBook1Ch14Scene()
 {
-    std::vector<Sphere> mSpheres;
+    VulkanApp::Scene scene;
+
+    scene.mCamera = {
+        .center = glm::vec3(13.f, 2.f, 3.f),
+        .eye = glm::vec3(0.f,0.f,0.f),
+        .backgroundColor = glm::vec3(1.f),
+        .fovY = 20.f,
+        .focalDistance = 1.f
+    };
 
     // Ground
-    mSpheres.emplace_back(glm::vec3(0, -1000, 0), 1000.f, DIFFUSE, glm::vec3(0.5f));
+    scene.mSpheres.emplace_back(glm::vec3(0, -1000, 0), 1000.f, DIFFUSE, glm::vec3(0.5f));
 
     for (int a = -11; a < 11; a++) {
         for (int b = -11; b < 11; b++) {
@@ -196,30 +226,48 @@ std::vector<Sphere> createCh14Scene()
 
                 if (choose_mat < 0.8) {
                     auto albedo = random_vector();
-                    mSpheres.emplace_back(center, 0.2f, DIFFUSE, albedo);
+                    scene.mSpheres.emplace_back(center, 0.2f, DIFFUSE, albedo);
                 }
                 else if (choose_mat < 0.95) {
                     auto albedo = random_vector();
-                    mSpheres.emplace_back(center, 0.2f, METAL, albedo);
+                    scene.mSpheres.emplace_back(center, 0.2f, METAL, albedo);
                 }
                 else {
-                    mSpheres.emplace_back(center, 0.2f, DIELECTRIC, glm::vec3(1.f));
+                    scene.mSpheres.emplace_back(center, 0.2f, DIELECTRIC, glm::vec3(1.f));
                 }
             }
         }
     }
+    scene.mSpheres.emplace_back(glm::vec3(0, 1, 0), 1.f, LIGHT, glm::vec3(1.f));
+    scene.mSpheres.emplace_back(glm::vec3(-4, 1, 0), 1.f, DIFFUSE, glm::vec3(0.4f, 0.2f, 0.1f));
+    scene.mSpheres.emplace_back(glm::vec3(4, 1, 0), 1.f, METAL, glm::vec3(0.7, 0.6, 0.5));
 
-    mSpheres.emplace_back(glm::vec3(0, 1, 0), 1.f, DIELECTRIC, glm::vec3(1.f));
-    mSpheres.emplace_back(glm::vec3(-4, 1, 0), 1.f, DIFFUSE, glm::vec3(0.4f, 0.2f, 0.1f));
-    mSpheres.emplace_back(glm::vec3(4, 1, 0), 1.f, METAL, glm::vec3(0.7, 0.6, 0.5));
+    return scene;
+}
 
-    return mSpheres;
+VulkanApp::Scene createBook2Ch7Scene()
+{
+    VulkanApp::Scene scene;
+
+    scene.mCamera = {
+        .center = glm::vec3(26.f, 3.f, 6.f),
+        .eye = glm::vec3(0.f,2.f,0.f),
+        .backgroundColor = glm::vec3(0.f),
+        .fovY = 20.f,
+        .focalDistance = 1.f,
+    };
+
+    scene.mSpheres.emplace_back(glm::vec3(0, -1000, 0), 1000.f, DIFFUSE, glm::vec3(0.5f));
+    scene.mSpheres.emplace_back(glm::vec3(0.f, 2.f, 0.f), 2.f, DIFFUSE, glm::vec3(0.5f));
+    scene.mSpheres.emplace_back(glm::vec3(0.f, 7.f, 0.f), 2.f, LIGHT, glm::vec3(1.f));
+
+    return scene;
 }
 
 // Uploads all scene geometry into GPU buffers;
 void VulkanApp::uploadScene()
 {
-    mScene.mSpheres = createCh14Scene();
+    mScene = createBook1Ch11Scene();
 
     VulkanApp::Buffer sphereStagingBuffer;
     sphereStagingBuffer.mByteSize = mScene.mSpheres.size() * sizeof(Sphere);
@@ -418,7 +466,7 @@ void VulkanApp::initSceneTLAS()
 
         instances.push_back(VkAccelerationStructureInstanceKHR{
            .transform = glmMat4ToVkTransformMatrixKHR(transform),
-           .instanceCustomIndex = i,                                                    // We use  custom index to determine whether geometry is a quad, sphere or AABB.
+           .instanceCustomIndex = i,                                                    // We use the custom index in the shader to access the instance transform.
            .mask = 0xFF,                                                                // No masking. Ray will always be visible.
            .instanceShaderBindingTableRecordOffset = mScene.mSpheres[i].material,       // We use this to determine the material of the surface.
            .flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR,          // No face culling, etc.
@@ -671,11 +719,16 @@ void VulkanApp::initComputePipeline()
     };
     mDeletionQueue.push_function([&]() {vkDestroyShaderModule(mDevice, mComputeShader, nullptr); });
 
+    // Create a push constant range describing the amount of data for the push constants.
+    static_assert(sizeof(Camera) % 4 == 0, "Push constant size must be a multiple of 4 per the Vulkan spec!");
+    const VkPushConstantRange pushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Camera) };
+
     const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .setLayoutCount = 1,
         .pSetLayouts    = &mDescriptorSetLayout,
-        .pushConstantRangeCount = 0
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &pushConstantRange
     };
     VK_CHECK(vkCreatePipelineLayout(mDevice, &pipelineLayoutCreateInfo, VK_NULL_HANDLE, &mPipelineLayout));
     mDeletionQueue.push_function([&]() {vkDestroyPipelineLayout(mDevice, mPipelineLayout, nullptr);  });
@@ -703,6 +756,9 @@ void VulkanApp::render()
 
         // Bind the descriptor set for the pipeline.
         vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, mPipelineLayout, 0, 1, &mDescriptorSet, 0, nullptr);
+
+        // Push push constants:
+        vkCmdPushConstants(cmdBuf, mPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Camera), &mScene.mCamera);                          
 
         // Run the compute shader.
         vkCmdDispatch(cmdBuf, std::ceil(mWindowExtents.width / 16), std::ceil(mWindowExtents.height / 16), 1);

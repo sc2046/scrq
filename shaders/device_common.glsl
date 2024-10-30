@@ -63,10 +63,22 @@ Ray generateRay(Camera cam, vec2 pixel, uvec2 resolution)
 // into the local space of the surface. 
 // ==============================================================
 
+void rayWorldToObjectTransform(mat4 worldToLocal, vec3 worldOrigin, vec3 worldDir, out vec3 localOrigin, out vec3 localDirection)
+{
+	//const mat4 worldToLocal = rayQueryGetIntersectionWorldToObjectEXT(rayQuery, committed);
+
+	const vec4 homogeneous_result = worldToLocal * vec4(worldOrigin, 1.f);
+	localOrigin = homogeneous_result.xyz / homogeneous_result.w;
+
+	const vec4 homogeneous_dir = worldToLocal * vec4(worldDir, 0.f);
+	localDirection = homogeneous_dir.xyz;
+
+}
+
 /// Intersects a ray against a sphere.
 /// If a valid intersection was found, fills the hitInfo struct, and returns true.
 /// Otherwise, returns false.
-bool hitSphere(Sphere s, Ray r, inout HitInfo hitInfo)
+bool hitSphere(Sphere s, Ray r , inout HitInfo hitInfo)
 {
 	const vec3  oc = r.origin - s.center;
 	const float a = dot(r.direction, r.direction);

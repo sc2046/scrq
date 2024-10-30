@@ -11,8 +11,13 @@ layout(binding = 0, set = 0, scalar) buffer storageBuffer { vec3 imageData[]; };
 layout(binding = 1, set = 0) uniform accelerationStructureEXT tlas;
 layout(binding = 2, set = 0, scalar) buffer Spheres { Sphere spheres[]; };
 
+layout(push_constant, scalar) uniform PushConstants 
+{ 
+	Camera camera;
+};
+
 const uvec2 resolution = uvec2(800, 600);
-const uint numSamples = 64;
+const uint numSamples = 500;
 const uint numBounces = 16;
 
 vec3 rayColor(Ray ray, inout uint rngState);
@@ -23,21 +28,6 @@ void main()
 
 	// Use the linear index of the pixel as the initial seed for the RNG.
 	uint rngState = resolution.x * pixel.y + pixel.x;
-
-	// Camera parameters for Book 1 chapters 8-13.
-	//Camera camera;
-	//camera.center = vec3(0, 0, 0);
-	//camera.eye = vec3(0, 0, -1);
-	//camera.fovY = 90.f;
-	//camera.focalDistance = 1.f;
-
-	// Camera parameters for Book 1 chapter 14.
-	Camera camera;
-	camera.center			= vec3(13, 2, 3);
-	camera.eye				= vec3(0, 0, 0);
-	camera.fovY				= 20.f;
-	camera.focalDistance	= 1.f;
-
 
 	vec3 pixelColor = vec3(0.f);
 	for (int sampleID = 0; sampleID < numSamples; ++sampleID)
@@ -73,17 +63,17 @@ vec3 rayColor(Ray ray, inout uint rngState)
 				const int sphereID	= rayQueryGetIntersectionInstanceCustomIndexEXT(rayQuery, false);
 				const Sphere sphere	= spheres[sphereID];
 
+				// TODO: Perform in local space of surface.
 				if (hitSphere(sphere, ray, hitInfo)) {
 					rayQueryGenerateIntersectionEXT(rayQuery, hitInfo.t);
 				}
 			}
 		}
-	
+
+		// Scene traversal complete - now we use the hit information and the surface material properties to determine the color.
+
 		if (rayQueryGetIntersectionTypeEXT(rayQuery, true) == gl_RayQueryCommittedIntersectionNoneEXT) {
-			// No geometry intesections occured. Note that we treat the background as if it is a light source.
-			const float a = 0.5 * (normalize(ray.direction).y + 1.0);
-			const vec3 skyColor =  (1.0 - a) * vec3(1.0, 1.0, 1.0) + a * vec3(0.5, 0.7, 1.0);
-			return curAttenuation * skyColor;
+			return curAttenuation * camera.backgroundColor;
 		}
 		else if (rayQueryGetIntersectionTypeEXT(rayQuery, true) == gl_RayQueryCommittedIntersectionTriangleEXT) {
 			// Ignore triangles for now.
@@ -95,6 +85,7 @@ vec3 rayColor(Ray ray, inout uint rngState)
 
 			const uint materialID = rayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetEXT(rayQuery, true);
 			bool scatter;
+			vec3 emitted = vec3(0.f);
 			switch (materialID) {
 			case DIFFUSE:
 				scatter = scatterDiffuse(ray, hitInfo, attenuation, scattered, rngState);
@@ -105,16 +96,20 @@ vec3 rayColor(Ray ray, inout uint rngState)
 			case DIELECTRIC:
 				scatter = scatterDielectric(ray, hitInfo, attenuation, scattered, rngState);
 				break;
+			case LIGHT:
+				scatter = false;
+				emitted = vec3(4.f);
 			default:
 				scatter = false;
 				break;
 			}
 
 			if (scatter) {
-				curAttenuation *= attenuation;
+				curAttenuation	*= attenuation;
+				curAttenuation	+= emitted;
 				ray = scattered;
 			}
-			else return vec3(0.f);
+			else return emitted;
 		}
 	}
 	// Exceeded recursion - assume the sample provides no contribution to the light.

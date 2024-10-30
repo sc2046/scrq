@@ -8,7 +8,6 @@ target_link_libraries(book2 volk)
 target_link_libraries(book2 Vulkan::Vulkan)
 target_link_libraries(book2 fmt)
 
-
 add_custom_command(
 	TARGET book2 POST_BUILD 
 	COMMAND ${CMAKE_COMMAND} -E copy_directory #recursively copy
