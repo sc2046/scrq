@@ -136,8 +136,7 @@ void VulkanApp::initAllocators()
 // Uploads all scene geometry into GPU buffers;
 void VulkanApp::uploadScene()
 {
-    mScene = createGroundScene();
-    mScene.mMesh.loadFromFile("assets/backpack.obj");
+    mScene = createSponzaBuddhaScene();
 
     // Upload AABB (sphere) data.
     {
@@ -189,12 +188,13 @@ void VulkanApp::uploadScene()
     }
 
     // Upload triangle mesh data
-    {
+    for(auto& mesh : mScene.mMeshes)
+    { 
         // Create CPU staging buffers for the mesh data.
         Buffer vertexStagingBuffer;
-        vertexStagingBuffer.mByteSize = mScene.mMesh.mVertices.size() * sizeof(Vertex);
+        vertexStagingBuffer.mByteSize = mesh.mVertices.size() * sizeof(Vertex);
         Buffer indexStagingBuffer;
-        indexStagingBuffer.mByteSize = mScene.mMesh.mIndices.size() * sizeof(uint32_t);
+        indexStagingBuffer.mByteSize = mesh.mIndices.size() * sizeof(uint32_t);
 
         VkBufferCreateInfo stagingbufferCreateInfo{
                 .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -215,20 +215,20 @@ void VulkanApp::uploadScene()
 
         void* vdata;
         vmaMapMemory(mVmaAllocator, vertexStagingBuffer.mAllocation, (void**)&vdata);
-        memcpy(vdata, mScene.mMesh.mVertices.data(), mScene.mMesh.mVertices.size() * sizeof(Vertex));
+        memcpy(vdata, mesh.mVertices.data(), mesh.mVertices.size() * sizeof(Vertex));
         vmaUnmapMemory(mVmaAllocator, vertexStagingBuffer.mAllocation);
 
         void* idata;
         vmaMapMemory(mVmaAllocator, indexStagingBuffer.mAllocation, (void**)&idata);
-        memcpy(idata, mScene.mMesh.mIndices.data(), mScene.mMesh.mIndices.size() * sizeof(uint32_t));
+        memcpy(idata, mesh.mIndices.data(), mesh.mIndices.size() * sizeof(uint32_t));
         vmaUnmapMemory(mVmaAllocator, indexStagingBuffer.mAllocation);
 
         // Create GPU buffers for the vertices and indices.
-        mScene.mMesh.mVertexBuffer.mByteSize = vertexStagingBuffer.mByteSize;
-        mScene.mMesh.mIndexBuffer.mByteSize = indexStagingBuffer.mByteSize;
+        mesh.mVertexBuffer.mByteSize = vertexStagingBuffer.mByteSize;
+        mesh.mIndexBuffer.mByteSize = indexStagingBuffer.mByteSize;
         VkBufferCreateInfo deviceBufferCreateInfo{
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .size = mScene.mMesh.mVertexBuffer.mByteSize,
+            .size = mesh.mVertexBuffer.mByteSize,
             .usage =
                 VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                 VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
@@ -237,12 +237,12 @@ void VulkanApp::uploadScene()
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE
         };
         const VmaAllocationCreateInfo deviceBufferAllocInfo{ .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, };
-        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &deviceBufferCreateInfo, &deviceBufferAllocInfo, &mScene.mMesh.mVertexBuffer.mBuffer, &mScene.mMesh.mVertexBuffer.mAllocation, nullptr));
-        mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, mScene.mMesh.mVertexBuffer.mBuffer, mScene.mMesh.mVertexBuffer.mAllocation);});
+        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &deviceBufferCreateInfo, &deviceBufferAllocInfo, &mesh.mVertexBuffer.mBuffer, &mesh.mVertexBuffer.mAllocation, nullptr));
+        mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, mesh.mVertexBuffer.mBuffer, mesh.mVertexBuffer.mAllocation);});
 
-        deviceBufferCreateInfo.size = mScene.mMesh.mIndexBuffer.mByteSize;
-        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &deviceBufferCreateInfo, &deviceBufferAllocInfo, &mScene.mMesh.mIndexBuffer.mBuffer, &mScene.mMesh.mIndexBuffer.mAllocation, nullptr));
-        mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, mScene.mMesh.mIndexBuffer.mBuffer, mScene.mMesh.mIndexBuffer.mAllocation);});
+        deviceBufferCreateInfo.size = mesh.mIndexBuffer.mByteSize;
+        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &deviceBufferCreateInfo, &deviceBufferAllocInfo, &mesh.mIndexBuffer.mBuffer, &mesh.mIndexBuffer.mAllocation, nullptr));
+        mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, mesh.mIndexBuffer.mBuffer, mesh.mIndexBuffer.mAllocation);});
 
 
         VkCommandBuffer cmdBuf = AllocateAndBeginOneTimeCommandBuffer(mDevice, mCommandPool);
@@ -250,10 +250,10 @@ void VulkanApp::uploadScene()
             VkBufferCopy copy;
             copy.dstOffset = 0;
             copy.srcOffset = 0;
-            copy.size = mScene.mMesh.mVertexBuffer.mByteSize;
-            vkCmdCopyBuffer(cmdBuf, vertexStagingBuffer.mBuffer, mScene.mMesh.mVertexBuffer.mBuffer, 1, &copy);
-            copy.size = mScene.mMesh.mIndexBuffer.mByteSize;
-            vkCmdCopyBuffer(cmdBuf, indexStagingBuffer.mBuffer, mScene.mMesh.mIndexBuffer.mBuffer, 1, &copy);
+            copy.size = mesh.mVertexBuffer.mByteSize;
+            vkCmdCopyBuffer(cmdBuf, vertexStagingBuffer.mBuffer, mesh.mVertexBuffer.mBuffer, 1, &copy);
+            copy.size = mesh.mIndexBuffer.mByteSize;
+            vkCmdCopyBuffer(cmdBuf, indexStagingBuffer.mBuffer, mesh.mIndexBuffer.mBuffer, 1, &copy);
         }
         EndSubmitWaitAndFreeCommandBuffer(mDevice, mComputeQueue, mCommandPool, cmdBuf);
 
@@ -496,6 +496,20 @@ void VulkanApp::initSceneTLAS()
 {
     uint32_t instanceIndex = 0;
     std::vector<VkAccelerationStructureInstanceKHR> instances;
+    // TODO (Hack): For now, do triangle meshes first because the value of instanceCustomIndex will be used to index descriptors.
+    // Create an instance for each triangle mesh in the scene.
+    for (uint32_t i = 0; i < mScene.mMeshes.size(); ++i)
+    {
+        instances.push_back(VkAccelerationStructureInstanceKHR{
+            .transform = glmMat4ToVkTransformMatrixKHR(mScene.mMeshes[i].mTransform),                         
+            .instanceCustomIndex = instanceIndex++,                                             // We use the custom index in the shader to access the instance transform.
+            .mask = 0xFF,                                                                       // No masking. Ray will always be visible.
+            .instanceShaderBindingTableRecordOffset = 0,                                        // TODO: Determine
+            .flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR,                 // No face culling, etc.
+            .accelerationStructureReference = getBlasDeviceAddress(mDevice, mScene.mMeshes[i].mBlas.mHandle)  // For meshes, use the address of the mesh BLAS .
+            });
+    }
+
     // Create an instance for each sphere in the scene.
     for (uint32_t i = 0; i < mScene.mSpheres.size(); ++i)
     {
@@ -511,22 +525,11 @@ void VulkanApp::initSceneTLAS()
            .accelerationStructureReference = getBlasDeviceAddress(mDevice, mAabbBlas.mHandle) // For procedural geometry, use the address of the AABB BLAS.
         });
     }
-
-
-    // Create an instance for the triangle mesh in the scene.
-    instances.push_back(VkAccelerationStructureInstanceKHR{
-        .transform = glmMat4ToVkTransformMatrixKHR(glm::scale(glm::mat4(1.f), glm::vec3(1.f))),                         // TODO: Add transform to mesh.
-        .instanceCustomIndex = instanceIndex++,                                             // We use the custom index in the shader to access the instance transform.
-        .mask = 0xFF,                                                                       // No masking. Ray will always be visible.
-        .instanceShaderBindingTableRecordOffset = 0,                                        // TODO: Determine
-        .flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR,                 // No face culling, etc.
-        .accelerationStructureReference = getBlasDeviceAddress(mDevice, mScene.mMesh.mBlas.mHandle)  // For meshes, use the address of the mesh BLAS .
-        });
     const uint32_t kInstanceCount = instances.size();
 
     // Create instances for quads...
     
-
+    //TODO: Finish
     // Upload instanceData to the device via a staging buffer.
     {
         const VkBufferCreateInfo instanceBufCreateInfo{
@@ -677,18 +680,21 @@ void VulkanApp::initDescriptorSets()
     .descriptorCount = 1,
     .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
     };
+
+    //TODO: (HACK) Make count == meshes.size()
+    
     // Buffer for triangle mesh vertices.
     bindingInfo[3] = {
     .binding = 3,
     .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-    .descriptorCount = 1,
+    .descriptorCount = MAX_MESH_COUNT,
     .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
     };
     // Buffer for triangle mesh indices.
     bindingInfo[4] = {
         .binding = 4,
         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        .descriptorCount = 1,
+        .descriptorCount = MAX_MESH_COUNT,
         .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
     };
 
@@ -702,7 +708,7 @@ void VulkanApp::initDescriptorSets()
 
     // Create a descriptor pool for the resources we will need.
     std::array<VkDescriptorPoolSize, 2> sizes;
-    sizes[0] = { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4 };
+    sizes[0] = { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2 + (2 * MAX_MESH_COUNT) };
     sizes[1] = { VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1 };
 
     const VkDescriptorPoolCreateInfo info{
@@ -762,25 +768,31 @@ void VulkanApp::initDescriptorSets()
         .pBufferInfo = &sphereBufferDescriptor
     };
 
-    const VkDescriptorBufferInfo meshVerticesBufferDescriptor = { .buffer = mScene.mMesh.mVertexBuffer.mBuffer, .range = mScene.mMesh.mVertexBuffer.mByteSize };
+    // Create a descriptor array for mesh vertices/indices.
+    std::vector<VkDescriptorBufferInfo> meshVertexBufferDescriptorArrayInfo;
+    std::vector<VkDescriptorBufferInfo> meshIndexBufferDescriptorArrayInfo;
+    for (int i = 0;i < mScene.mMeshes.size(); ++i)
+    {
+        meshVertexBufferDescriptorArrayInfo.emplace_back(mScene.mMeshes[i].mVertexBuffer.mBuffer, 0, mScene.mMeshes[i].mVertexBuffer.mByteSize);
+        meshIndexBufferDescriptorArrayInfo.emplace_back(mScene.mMeshes[i].mIndexBuffer.mBuffer, 0, mScene.mMeshes[i].mIndexBuffer.mByteSize);
+    }
     writeDescriptorSets[3] = {
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
         .dstSet = mDescriptorSet,
         .dstBinding = 3,
         .dstArrayElement = 0,
-        .descriptorCount = 1,
+        .descriptorCount = static_cast<uint32_t>(mScene.mMeshes.size()),
         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        .pBufferInfo = &meshVerticesBufferDescriptor
+        .pBufferInfo = meshVertexBufferDescriptorArrayInfo.data()
     };
-    const VkDescriptorBufferInfo meshIndicesBufferDescriptor = { .buffer = mScene.mMesh.mIndexBuffer.mBuffer, .range = mScene.mMesh.mIndexBuffer.mByteSize };
     writeDescriptorSets[4] = {
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
         .dstSet = mDescriptorSet,
         .dstBinding = 4,
         .dstArrayElement = 0,
-        .descriptorCount = 1,
+        .descriptorCount = static_cast<uint32_t>(mScene.mMeshes.size()),
         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        .pBufferInfo = &meshIndicesBufferDescriptor
+        .pBufferInfo = meshIndexBufferDescriptorArrayInfo.data()
     };
 
     vkUpdateDescriptorSets(mDevice, static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);

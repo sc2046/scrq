@@ -11,8 +11,8 @@ layout(binding = 0, set = 0, scalar) buffer storageBuffer { vec3 imageData[]; };
 
 layout(binding = 1, set = 0) uniform accelerationStructureEXT tlas;
 layout(binding = 2, set = 0, scalar) buffer Spheres { Sphere spheres[]; };
-layout(binding = 3, set = 0, scalar) buffer Vertices { Vertex vertices[]; };
-layout(binding = 4, set = 0, scalar) buffer Indices { uint indices[]; };
+layout(binding = 3, set = 0, scalar) buffer Vertices { Vertex vertices[]; } meshVertices[MAX_MESH_COUNT];
+layout(binding = 4, set = 0, scalar) buffer Indices { uint indices[]; }		meshIndices[MAX_MESH_COUNT];
 
 layout(push_constant, scalar) uniform PushConstants
 {
@@ -95,17 +95,17 @@ vec3 rayColor(vec3 origin, vec3 direction, inout uint rngState)
 		else if (rayQueryGetIntersectionTypeEXT(rayQuery, true) == gl_RayQueryCommittedIntersectionTriangleEXT) {
 			
 			// Get the ID of the triangle
-			const int triangleID = rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, true);
-
+			const int triangleID	= rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, true);
+			const int meshID		= rayQueryGetIntersectionInstanceCustomIndexEXT(rayQuery, true);
 			// Get the indices of the vertices of the triangle
-			const uint i0 = indices[3 * triangleID + 0];
-			const uint i1 = indices[3 * triangleID + 1];
-			const uint i2 = indices[3 * triangleID + 2];
+			const uint i0 = meshIndices[meshID].indices[3 * triangleID + 0];
+			const uint i1 = meshIndices[meshID].indices[3 * triangleID + 1];
+			const uint i2 = meshIndices[meshID].indices[3 * triangleID + 2];
 
 			// Get the vertices of the triangle
-			const Vertex v0 = vertices[i0];
-			const Vertex v1 = vertices[i1];
-			const Vertex v2 = vertices[i2];
+			const Vertex v0 = meshVertices[meshID].vertices[i0];
+			const Vertex v1 = meshVertices[meshID].vertices[i1];
+			const Vertex v2 = meshVertices[meshID].vertices[i2];
 
 			// Get the barycentric coordinates of the intersection
 			vec3 barycentrics = vec3(0.f, rayQueryGetIntersectionBarycentricsEXT(rayQuery, true));
@@ -121,14 +121,20 @@ vec3 rayColor(vec3 origin, vec3 direction, inout uint rngState)
 			hitInfo.t	= rayQueryGetIntersectionTEXT(rayQuery, true);
 			hitInfo.p	= rayQueryGetIntersectionObjectToWorldEXT(rayQuery, true) * vec4(objectPos, 1.0f);
 			hitInfo.gn	= normalize((objectGN * rayQueryGetIntersectionWorldToObjectEXT(rayQuery, true)).xyz);
-			hitInfo.sn	= objectSN; //TODO: Not sure about this...
+			hitInfo.sn = normalize((objectSN * rayQueryGetIntersectionWorldToObjectEXT(rayQuery, true)).xyz);
 			//hitInfo.uv	= objectUV;
 			//hitInfo.material = int(rayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetEXT(rayQuery, true)); //TODO: Requires materials.
 			
-			return vec3(0.5) + 0.5 * hitInfo.gn;
-
 			hitInfo.material = DIFFUSE;
-			hitInfo.color = vec3(0.5f);
+			hitInfo.color = vec3(0.73);
+			if (meshID == 1)
+			{
+				hitInfo.material = DIELECTRIC;
+				hitInfo.color = vec3(0.12, 0.45, 0.15);
+			}
+
+			//return 0.5f * (vec3(1.f) + hitInfo.sn);
+
 		}
 		// Fill intersection data for AABBs.
 		else {

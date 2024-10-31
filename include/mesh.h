@@ -11,6 +11,8 @@ struct ObjMesh
 {
 	std::vector<Vertex>		mVertices; 
 	std::vector<uint32_t>   mIndices;
+	glm::mat4				mTransform = glm::mat4(1.f);
+
     Buffer                  mVertexBuffer;
     Buffer                  mIndexBuffer;
 	

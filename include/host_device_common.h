@@ -13,6 +13,9 @@ using vec3 = glm::vec3;
 #endif  // #ifdef __cplusplus
 
 
+// TODO: (Haclk) fix number of meshes a scene can contain.
+#define MAX_MESH_COUNT 12 
+
 #define DIFFUSE		0
 #define METAL		1
 #define DIELECTRIC	2

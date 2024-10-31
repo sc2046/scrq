@@ -16,12 +16,12 @@ inline glm::vec3 random_vector() {
 
 struct Scene
 {
-	Camera				mCamera;
+    std::string                         mName;
+    Camera				                mCamera;
 
-	std::vector<Sphere>     mSpheres;
-	Buffer				    mSphereBuffer;
-
-    ObjMesh                 mMesh;
+	std::vector<Sphere>                 mSpheres;
+	Buffer				                mSphereBuffer;
+    std::vector<ObjMesh>                mMeshes;
 };
 
 inline Scene createBook1Ch9Scene()
@@ -155,5 +155,27 @@ inline Scene createGroundScene()
     };
 
     scene.mSpheres.emplace_back(glm::vec3(0.0, -1005, -1.0), 1000, DIFFUSE, glm::vec3(0.5f));
+    return scene;
+}
+
+inline Scene createSponzaBuddhaScene()
+{
+    Scene scene;
+    scene.mName = "Sponza-Buddha";
+
+    scene.mCamera = {
+        .center = glm::vec3(-2, 0.5, -0.1),
+        .eye = glm::vec3(0, 0.5, 0),
+        .backgroundColor = glm::vec3(2.f),
+        .fovY = 90.f,
+        .focalDistance = 1.f
+    };
+
+    scene.mMeshes.resize(2);
+    scene.mMeshes[0].loadFromFile("assets/sponza.obj");
+    scene.mMeshes[1].loadFromFile("assets/buddha.obj");
+    scene.mMeshes[1].mTransform = glm::translate(glm::mat4(1.f), { -2.f,0.f,0.f });
+
+    scene.mSpheres.emplace_back(glm::vec3(0.0, -5000, -1.0), 1000, DIFFUSE, glm::vec3(0.5f));
     return scene;
 }

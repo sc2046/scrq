@@ -17,8 +17,8 @@ public:
 	VkExtent2D mWindowExtents{ 800, 600 };
 	VkExtent2D mWorkGroupDim{ 16,16 };
 
-	uint32_t mNumSamples{ 100 };
-	uint32_t mNumBounces{ 16 };
+	uint32_t mNumSamples{ 200 };
+	uint32_t mNumBounces{ 32 };
 
 
 	void initContext(bool validation);

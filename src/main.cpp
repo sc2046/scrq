@@ -40,7 +40,9 @@ int main()
         {
             auto begin = std::chrono::high_resolution_clock::now();
             engine.initAabbBlas();
-            engine.initMeshBlas(engine.mScene.mMesh);
+            engine.initMeshBlas(engine.mScene.mMeshes[0]);
+            engine.initMeshBlas(engine.mScene.mMeshes[1]);
+
             engine.initSceneTLAS();
             auto end = std::chrono::high_resolution_clock::now();
             asInitTime = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
@@ -65,13 +67,14 @@ int main()
         fmt::println("\tRecursion depth: {}", engine.mNumBounces);
     }
 
-    const fs::path imagePath("../../scenes/book2.hdr");
+    const fs::path sceneDirectory("../../scenes");
+    const auto outPath = (sceneDirectory / engine.mScene.mName).replace_extension(".hdr");
     {
         auto begin = std::chrono::high_resolution_clock::now();
-        engine.writeImage(imagePath);
+        engine.writeImage(outPath);
         auto end = std::chrono::high_resolution_clock::now();
         fmt::println("Image write time: {}ms", std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count());
-        fmt::println("Image written to: {}", fs::absolute(imagePath).string());
+        fmt::println("Image written to: {}", fs::absolute(outPath).string());
     }
 
     engine.cleanup();
