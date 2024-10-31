@@ -15,7 +15,6 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 
-
 void VulkanApp::initContext(bool validation)
 {
     // Create instance
@@ -187,6 +186,7 @@ void VulkanApp::uploadScene()
         vmaDestroyBuffer(mVmaAllocator, sphereStagingBuffer.mBuffer, sphereStagingBuffer.mAllocation);
     }
 
+    //TODO: Use same staging buffer for all meshes (set size equal to largest of meshes).
     // Upload triangle mesh data
     for(auto& mesh : mScene.mMeshes)
     { 
@@ -633,27 +633,110 @@ void VulkanApp::initSceneTLAS()
 
 void VulkanApp::initImage()
 {
-    // Create a buffer containing the imagedata..
-    // The ssbo will be accessed by the CPU and GPU, so we want it to be host-visible.
-    mImageBuffer.mByteSize = mWindowExtents.height * mWindowExtents.width * 3 * sizeof(float);
+    // Create an image that will be used to write to in the compute shader.
+    VkImageCreateInfo imageCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .imageType = VK_IMAGE_TYPE_2D,
+        .format = VK_FORMAT_R32G32B32A32_SFLOAT,
+        .extent = {.width = mWindowExtents.width, .height = mWindowExtents.height, .depth = 1 },
+        .mipLevels = 1,  // No mip-maps
+        .arrayLayers = 1,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .tiling = VK_IMAGE_TILING_OPTIMAL, // Use a gpu-friendly layout.
+        .usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, // We will be copying to a host-visible image.
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+    };
+    const VmaAllocationCreateInfo imageGPUAllocCreateInfo{
+            .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+    };
+    VK_CHECK(vmaCreateImage(mVmaAllocator, &imageCreateInfo, &imageGPUAllocCreateInfo, &mImageRender.mImage, &mImageRender.mAllocation, nullptr));
+    mDeletionQueue.push_function([&]() {vmaDestroyImage(mVmaAllocator, mImageRender.mImage, mImageRender.mAllocation);});
+
+
+    // Create an image view for the render image.
+    VkImageViewCreateInfo imageViewCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .image = mImageRender.mImage,
+        .viewType = VK_IMAGE_VIEW_TYPE_2D,
+        .format = VK_FORMAT_R32G32B32A32_SFLOAT, // Use same format as defined in the image
+        .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+        .baseMipLevel = 0, .levelCount = 1,
+        .baseArrayLayer = 0,.layerCount = 1 }
+    };
+    VK_CHECK(vkCreateImageView(mDevice, &imageViewCreateInfo, nullptr, &mImageView));
+    mDeletionQueue.push_function([&]() {vkDestroyImageView(mDevice, mImageView, nullptr);});
+
+
+    // Create another image for host-device transfer.
+    imageCreateInfo.tiling = VK_IMAGE_TILING_LINEAR;
+    imageCreateInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    const VmaAllocationCreateInfo imageLinearAllocCreateInfo{
+        .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT,
+        .usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+        .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT
+    };
+    VK_CHECK(vmaCreateImage(mVmaAllocator, &imageCreateInfo, &imageLinearAllocCreateInfo, &mImageLinear.mImage, &mImageLinear.mAllocation, nullptr));
+    mDeletionQueue.push_function([&]() {vmaDestroyImage(mVmaAllocator, mImageLinear.mImage, mImageLinear.mAllocation);});
+
+
+
+    // Perform layout transitions using image barriers.
+    //
+    // 1) We'll need to make imageRender accessible to shader reads and writes, 
+    // and transition it from VK_IMAGE_LAYOUT_UNDEFINED to VK_IMAGE_LAYOUT_GENERAL.
+    //
+    // 2) We'll need to make imageLinear accessible to transfer writes (since we'll copy image to it later), 
+    // and transition it from VK_IMAGE_LAYOUT_UNDEFINED to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL.
+    VkCommandBuffer uploadCmdBuffer = AllocateAndBeginOneTimeCommandBuffer(mDevice, mCommandPool);
     {
-        VkBufferCreateInfo bufferCreateInfo{
-            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .size = mImageBuffer.mByteSize,
-            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-            .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+
+        const VkAccessFlags srcAccesses             = 0; // (since image and imageLinear aren't initially accessible)
+        const VkAccessFlags dstImageRenderAccesses  = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;   
+        const VkAccessFlags dstImageLinearAccesses  = VK_ACCESS_TRANSFER_WRITE_BIT;                    
+
+        const VkImageSubresourceRange range{
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1
         };
-        VmaAllocationCreateInfo allocInfo{
-            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-            .usage = VMA_MEMORY_USAGE_AUTO, // Let the allocator decide which memory type to use.
-            .requiredFlags =
-                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | // Specify that the buffer may be mapped. 
-                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | // 
-                VK_MEMORY_PROPERTY_HOST_CACHED_BIT     // Without this flag, every read of the buffer's memory requires a fetch from GPU memory!
-        };
-        vmaCreateBuffer(mVmaAllocator, &bufferCreateInfo, &allocInfo, &mImageBuffer.mBuffer, &mImageBuffer.mAllocation, nullptr);
+
+        // Image memory barrier for `imageRender` from UNDEFINED to GENERAL layout:
+        std::array<VkImageMemoryBarrier, 2> imageBarriers = {};
+        imageBarriers[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        imageBarriers[0].srcAccessMask = srcAccesses;
+        imageBarriers[0].dstAccessMask = dstImageRenderAccesses;
+        imageBarriers[0].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        imageBarriers[0].newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        imageBarriers[0].image = mImageRender.mImage;
+        imageBarriers[0].subresourceRange = range;
+
+        // Image memory barrier for `imageLinear` from UNDEFINED to TRANSFER_DST_OPTIMAL layout:
+        imageBarriers[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        imageBarriers[1].srcAccessMask = srcAccesses;
+        imageBarriers[1].dstAccessMask = dstImageLinearAccesses;
+        imageBarriers[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        imageBarriers[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        imageBarriers[1].image = mImageLinear.mImage;
+        imageBarriers[1].subresourceRange = range;
+
+        // Here's how to do that:
+        const VkPipelineStageFlags srcStages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT; //nvvk::makeAccessMaskPipelineStageFlags(srcAccesses);
+        const VkPipelineStageFlags dstStages = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+            // VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;//nvvk::makeAccessMaskPipelineStageFlags(dstImageAccesses | dstImageLinearAccesses);
+
+        // Include the two image barriers in the pipeline barrier:
+        vkCmdPipelineBarrier(uploadCmdBuffer,       // The command buffer
+            srcStages, dstStages,  // Src and dst pipeline stages
+            0,                     // Flags for memory dependencies
+            0, nullptr,            // Global memory barrier objects
+            0, nullptr,            // Buffer memory barrier objects
+            2, imageBarriers.data());     // Image barrier objects
     }
-    mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, mImageBuffer.mBuffer, mImageBuffer.mAllocation);});
+    EndSubmitWaitAndFreeCommandBuffer(mDevice, mComputeQueue, mCommandPool, uploadCmdBuffer);
+
 }
 
 void VulkanApp::initDescriptorSets()
@@ -662,7 +745,7 @@ void VulkanApp::initDescriptorSets()
     // Buffer for image data.
     bindingInfo[0] = {
         .binding = 0,
-        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
         .descriptorCount = 1, 
         .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
     };
@@ -707,14 +790,15 @@ void VulkanApp::initDescriptorSets()
     mDeletionQueue.push_function([&]() {vkDestroyDescriptorSetLayout(mDevice, mDescriptorSetLayout, nullptr);});
 
     // Create a descriptor pool for the resources we will need.
-    std::array<VkDescriptorPoolSize, 2> sizes;
-    sizes[0] = { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2 + (2 * MAX_MESH_COUNT) };
-    sizes[1] = { VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1 };
+    std::array<VkDescriptorPoolSize, 3> sizes;
+    sizes[0] = { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1 };
+    sizes[1] = { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1 + (2 * MAX_MESH_COUNT) };
+    sizes[2] = { VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1 };
 
     const VkDescriptorPoolCreateInfo info{
     .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
     .maxSets = 1,
-    .poolSizeCount = 2,
+    .poolSizeCount = 3,
     .pPoolSizes = sizes.data()
     };
     VK_CHECK(vkCreateDescriptorPool(mDevice, &info, nullptr, &mDescriptorPool););
@@ -731,15 +815,16 @@ void VulkanApp::initDescriptorSets()
 
     // Point the descriptor sets to the resources.
     std::array<VkWriteDescriptorSet, 5> writeDescriptorSets;
-    const VkDescriptorBufferInfo imageBufferDescriptor{.buffer = mImageBuffer.mBuffer, .range = mImageBuffer.mByteSize };
+
+    const VkDescriptorImageInfo imageLinearDescriptor{ .imageView = mImageView, .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
     writeDescriptorSets[0] = {
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
         .dstSet = mDescriptorSet,
         .dstBinding = 0,
         .dstArrayElement = 0,
         .descriptorCount = 1,
-        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        .pBufferInfo = &imageBufferDescriptor
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+        .pImageInfo = &imageLinearDescriptor
     };
 
     const VkWriteDescriptorSetAccelerationStructureKHR tlasDescriptor{
@@ -855,14 +940,62 @@ void VulkanApp::render()
         // Run the compute shader.
         vkCmdDispatch(cmdBuf, std::ceil(mWindowExtents.width / 16), std::ceil(mWindowExtents.height / 16), 1);
 
+
+        // Transition `imageRender` from GENERAL to TRANSFER_SRC_OPTIMAL layout.
+        
+        const VkImageSubresourceRange range{
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1
+        };
+
+        // Image memory barrier for `imageRender` from UNDEFINED to GENERAL layout:
+        VkImageMemoryBarrier imageBarrier = {};
+        imageBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        imageBarrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+        imageBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        imageBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+        imageBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        imageBarrier.image = mImageRender.mImage;
+        imageBarrier.subresourceRange = range;
+
+        vkCmdPipelineBarrier(cmdBuf,             // Command buffer
+            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,  // Src and dst pipeline stages
+            0,                     // Dependency flags
+            0, nullptr,            // Global memory barriers
+            0, nullptr,            // Buffer memory barriers
+            1, &imageBarrier);          // Image memory barriers
+
+        // We copy image color, mip 0, layer 0:
+        {
+            // We copy image color, mip 0, layer 0:
+            VkImageCopy region{ .srcSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,  
+                                                  .mipLevel = 0,                          
+                                                  .baseArrayLayer = 0,                          
+                                                  .layerCount = 1
+            },
+                .srcOffset = {0, 0, 0}, // (0, 0, 0) in the first image corresponds to (0, 0, 0) in the second image:
+                .dstSubresource = region.srcSubresource,
+                .dstOffset = {0, 0, 0},
+                .extent = {mWindowExtents.width, mWindowExtents.height, 1} };                 // Copy the entire image:
+            vkCmdCopyImage(cmdBuf,                             // Command buffe
+                mImageRender.mImage,                           // Source image
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,  // Source image layout
+                mImageLinear.mImage,                     // Destination image
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,  // Destination image layout
+                1, &region);                           // Regions
+        }
+
         // Insert a pipeline barrier that ensures GPU memory writes are available for the CPU to read.
         VkMemoryBarrier memoryBarrier = {
             .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
-            .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,  // Make shader writes
+            .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,  // Make shader writes
             .dstAccessMask = VK_ACCESS_HOST_READ_BIT       // Readable by the CPU
         };
-        vkCmdPipelineBarrier(cmdBuf,                                // The command buffer
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,           // From the transfer stage
+        vkCmdPipelineBarrier(cmdBuf,                    // The command buffer
+            VK_PIPELINE_STAGE_TRANSFER_BIT,       // From the transfer stage
             VK_PIPELINE_STAGE_HOST_BIT,               // To the CPU
             0,                                        // No special flags
             1, &memoryBarrier,                        // Pass the single global memory barrier.
@@ -873,11 +1006,10 @@ void VulkanApp::render()
 
 void VulkanApp::writeImage(const fs::path& path)
 {
-    // Write the buffer data to an external image.
     void* data;
-    vmaMapMemory(mVmaAllocator, mImageBuffer.mAllocation, &data);
-    stbi_write_hdr(path.string().data(), mWindowExtents.width, mWindowExtents.height, 3, reinterpret_cast<float*>(data));
-    vmaUnmapMemory(mVmaAllocator, mImageBuffer.mAllocation);
+    vmaMapMemory(mVmaAllocator, mImageLinear.mAllocation, &data);
+    stbi_write_hdr(path.string().data(), mWindowExtents.width, mWindowExtents.height, 4, reinterpret_cast<float*>(data));
+    vmaUnmapMemory(mVmaAllocator, mImageLinear.mAllocation);
 }
 
 

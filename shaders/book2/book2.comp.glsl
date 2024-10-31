@@ -7,8 +7,7 @@
 
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
-layout(binding = 0, set = 0, scalar) buffer storageBuffer { vec3 imageData[]; };
-
+layout(binding = 0, set = 0, rgba32f) uniform image2D storageImage;
 layout(binding = 1, set = 0) uniform accelerationStructureEXT tlas;
 layout(binding = 2, set = 0, scalar) buffer Spheres { Sphere spheres[]; };
 layout(binding = 3, set = 0, scalar) buffer Vertices { Vertex vertices[]; } meshVertices[MAX_MESH_COUNT];
@@ -21,18 +20,18 @@ layout(push_constant, scalar) uniform PushConstants
 	uint numBounces;
 };
 
-const uvec2 resolution = uvec2(800, 600);
-
 vec3 rayColor(vec3 origin, vec3 direction, inout uint rngState);
 
 void main()
 {
+	// The resolution of the image:
+	const ivec2 resolution = imageSize(storageImage);
 
 	const uvec2 pixel = gl_GlobalInvocationID.xy;
 	if ((pixel.x >= resolution.x) || (pixel.y >= resolution.y)) { return; }
 
 	// Use the linear index of the pixel as the initial seed for the RNG.
-	uint rngState = resolution.x * pixel.y + pixel.x;
+	uint rngState = uint(resolution.x * pixel.y + pixel.x);
 
 	vec3 pixelColor = vec3(0.f);
 	for (int sampleID = 0; sampleID < numSamples; ++sampleID)
@@ -43,8 +42,7 @@ void main()
 		pixelColor += rayColor(origin, direction, rngState);
 	}
 	pixelColor /= numSamples;
-	const uint pixelStart = resolution.x * pixel.y + pixel.x;
-	imageData[pixelStart] = pixelColor;
+	imageStore(storageImage, ivec2(pixel), vec4(pixelColor, 0.f));
 }
 
 vec3 rayColor(vec3 origin, vec3 direction, inout uint rngState)
@@ -126,7 +124,7 @@ vec3 rayColor(vec3 origin, vec3 direction, inout uint rngState)
 			//hitInfo.material = int(rayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetEXT(rayQuery, true)); //TODO: Requires materials.
 			
 			hitInfo.material = DIFFUSE;
-			hitInfo.color = vec3(0.73);
+			hitInfo.color = vec3(0.2);
 			if (meshID == 1)
 			{
 				hitInfo.material = DIELECTRIC;

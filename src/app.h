@@ -66,7 +66,9 @@ private:
 
 	// Image
 	//-----------------------------------------------
-	Buffer						mImageBuffer;
+	Image						mImageLinear;
+	Image						mImageRender;
+	VkImageView					mImageView;
 	
 	// Acceleration structures
 	//-----------------------------------------------

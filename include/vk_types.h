@@ -22,7 +22,8 @@
 #include <glm.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <gtx/transform.hpp>
-
+#include <gtx/quaternion.hpp>
+#include <gtc/matrix_transform.hpp>
 
 //#include <glm/mat4x4.hpp>
 //#include <glm/vec4.hpp>

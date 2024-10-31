@@ -9,6 +9,12 @@ struct Buffer
     uint32_t		mByteSize;
 };
 
+struct Image
+{
+    VkImage mImage;
+    VmaAllocation mAllocation;
+};
+
 struct AccelerationStructure
 {
     VkAccelerationStructureKHR	mHandle;
@@ -26,6 +32,9 @@ inline VkDeviceAddress getBlasDeviceAddress(VkDevice device, VkAccelerationStruc
     return vkGetAccelerationStructureDeviceAddressKHR(device, &addressInfo);
 }
 
+// Allocates a one-time-submit command buffer from a command pool.
+// Immediately begins recording.
+// Returns the command buffer.
 inline VkCommandBuffer AllocateAndBeginOneTimeCommandBuffer(VkDevice device, VkCommandPool cmdPool)
 {
     VkCommandBufferAllocateInfo cmdAllocInfo{ .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
@@ -39,6 +48,11 @@ inline VkCommandBuffer AllocateAndBeginOneTimeCommandBuffer(VkDevice device, VkC
     VK_CHECK(vkBeginCommandBuffer(cmdBuffer, &beginInfo));
     return cmdBuffer;
 }
+
+// Ends recording of a command buffer
+// Submits the work to the appropriate queue for execution.
+// Waits until the queue has no more work to do
+// Destroys the command buffer.
 inline void EndSubmitWaitAndFreeCommandBuffer(VkDevice device, VkQueue queue, VkCommandPool cmdPool, VkCommandBuffer& cmdBuffer)
 {
     VK_CHECK(vkEndCommandBuffer(cmdBuffer));

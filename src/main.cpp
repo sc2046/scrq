@@ -40,9 +40,10 @@ int main()
         {
             auto begin = std::chrono::high_resolution_clock::now();
             engine.initAabbBlas();
-            engine.initMeshBlas(engine.mScene.mMeshes[0]);
-            engine.initMeshBlas(engine.mScene.mMeshes[1]);
-
+            for (int i = 0; i < engine.mScene.mMeshes.size(); ++i)
+            {
+                engine.initMeshBlas(engine.mScene.mMeshes[i]);
+            }
             engine.initSceneTLAS();
             auto end = std::chrono::high_resolution_clock::now();
             asInitTime = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
