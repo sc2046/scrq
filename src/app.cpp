@@ -691,7 +691,6 @@ void VulkanApp::initImage()
     VkCommandBuffer uploadCmdBuffer = AllocateAndBeginOneTimeCommandBuffer(mDevice, mCommandPool);
     {
 
-        const VkAccessFlags srcAccesses             = 0; // (since image and imageLinear aren't initially accessible)
         const VkAccessFlags dstImageRenderAccesses  = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;   
         const VkAccessFlags dstImageLinearAccesses  = VK_ACCESS_TRANSFER_WRITE_BIT;                    
 
@@ -706,7 +705,7 @@ void VulkanApp::initImage()
         // Image memory barrier for `imageRender` from UNDEFINED to GENERAL layout:
         std::array<VkImageMemoryBarrier, 2> imageBarriers = {};
         imageBarriers[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        imageBarriers[0].srcAccessMask = srcAccesses;
+        imageBarriers[0].srcAccessMask = 0;
         imageBarriers[0].dstAccessMask = dstImageRenderAccesses;
         imageBarriers[0].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         imageBarriers[0].newLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -714,26 +713,23 @@ void VulkanApp::initImage()
         imageBarriers[0].subresourceRange = range;
 
         // Image memory barrier for `imageLinear` from UNDEFINED to TRANSFER_DST_OPTIMAL layout:
+        // Later it will be the destination of a copy.
         imageBarriers[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        imageBarriers[1].srcAccessMask = srcAccesses;
-        imageBarriers[1].dstAccessMask = dstImageLinearAccesses;
+        imageBarriers[1].srcAccessMask = 0;
+        imageBarriers[1].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         imageBarriers[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         imageBarriers[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
         imageBarriers[1].image = mImageLinear.mImage;
         imageBarriers[1].subresourceRange = range;
 
-        // Here's how to do that:
-        const VkPipelineStageFlags srcStages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT; //nvvk::makeAccessMaskPipelineStageFlags(srcAccesses);
-        const VkPipelineStageFlags dstStages = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-            // VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;//nvvk::makeAccessMaskPipelineStageFlags(dstImageAccesses | dstImageLinearAccesses);
 
-        // Include the two image barriers in the pipeline barrier:
-        vkCmdPipelineBarrier(uploadCmdBuffer,       // The command buffer
-            srcStages, dstStages,  // Src and dst pipeline stages
-            0,                     // Flags for memory dependencies
-            0, nullptr,            // Global memory barrier objects
-            0, nullptr,            // Buffer memory barrier objects
-            2, imageBarriers.data());     // Image barrier objects
+        vkCmdPipelineBarrier(uploadCmdBuffer,      
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 
+            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, //TODO: ??
+            0,                     
+            0, nullptr,            
+            0, nullptr,            
+            2, imageBarriers.data());   
     }
     EndSubmitWaitAndFreeCommandBuffer(mDevice, mComputeQueue, mCommandPool, uploadCmdBuffer);
 
@@ -941,65 +937,55 @@ void VulkanApp::render()
         vkCmdDispatch(cmdBuf, std::ceil(mWindowExtents.width / 16), std::ceil(mWindowExtents.height / 16), 1);
 
 
-        // Transition `imageRender` from GENERAL to TRANSFER_SRC_OPTIMAL layout.
-        
-        const VkImageSubresourceRange range{
-            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-            .baseMipLevel = 0,
-            .levelCount = 1,
-            .baseArrayLayer = 0,
-            .layerCount = 1
-        };
-
-        // Image memory barrier for `imageRender` from UNDEFINED to GENERAL layout:
-        VkImageMemoryBarrier imageBarrier = {};
-        imageBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        imageBarrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-        imageBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-        imageBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-        imageBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        imageBarrier.image = mImageRender.mImage;
-        imageBarrier.subresourceRange = range;
-
-        vkCmdPipelineBarrier(cmdBuf,             // Command buffer
-            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,  // Src and dst pipeline stages
-            0,                     // Dependency flags
-            0, nullptr,            // Global memory barriers
-            0, nullptr,            // Buffer memory barriers
-            1, &imageBarrier);          // Image memory barriers
-
-        // We copy image color, mip 0, layer 0:
+        // Before we copy from the GPU image to the host-visible one, we need to 
+        // 1) Perform an image layout transition for the GPU image.
+        // 2) Place a memory barrier ensuring the compute shader has finished reading/writing from the GPU image before copying from it.
         {
-            // We copy image color, mip 0, layer 0:
-            VkImageCopy region{ .srcSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,  
-                                                  .mipLevel = 0,                          
-                                                  .baseArrayLayer = 0,                          
-                                                  .layerCount = 1
-            },
-                .srcOffset = {0, 0, 0}, // (0, 0, 0) in the first image corresponds to (0, 0, 0) in the second image:
-                .dstSubresource = region.srcSubresource,
+            VkImageMemoryBarrier imageBarrier = {};
+            imageBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            imageBarrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;    // Shader reads/writes to this image must be made visible
+            imageBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;                               // Before reading from it in a transfer operation.
+            imageBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+            imageBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            imageBarrier.image = mImageRender.mImage;
+            imageBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+            vkCmdPipelineBarrier(cmdBuf,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,  // Src and dst pipeline stages
+                0,
+                0, nullptr, 0, nullptr,
+                1, &imageBarrier);
+
+            // Copy data from GPU image to Host-visible image.
+            VkImageCopy region{
+                .srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT,0,0,1},
+                .srcOffset = {0, 0, 0},
+                .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT,0,0,1},
                 .dstOffset = {0, 0, 0},
-                .extent = {mWindowExtents.width, mWindowExtents.height, 1} };                 // Copy the entire image:
-            vkCmdCopyImage(cmdBuf,                             // Command buffe
-                mImageRender.mImage,                           // Source image
-                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,  // Source image layout
-                mImageLinear.mImage,                     // Destination image
-                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,  // Destination image layout
-                1, &region);                           // Regions
+                .extent = {mWindowExtents.width, mWindowExtents.height, 1}
+            };
+            vkCmdCopyImage(cmdBuf,
+                mImageRender.mImage,
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                mImageLinear.mImage,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                1, &region);
         }
 
-        // Insert a pipeline barrier that ensures GPU memory writes are available for the CPU to read.
-        VkMemoryBarrier memoryBarrier = {
+
+        // Place a global pipeline memory barrier that ensures all transfer writes must be made visible
+        // Before reading from the Host
+        const VkMemoryBarrier memoryBarrier = {
             .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
-            .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,  // Make shader writes
-            .dstAccessMask = VK_ACCESS_HOST_READ_BIT       // Readable by the CPU
+            .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,  
+            .dstAccessMask = VK_ACCESS_HOST_READ_BIT       
         };
-        vkCmdPipelineBarrier(cmdBuf,                    // The command buffer
-            VK_PIPELINE_STAGE_TRANSFER_BIT,       // From the transfer stage
-            VK_PIPELINE_STAGE_HOST_BIT,               // To the CPU
-            0,                                        // No special flags
-            1, &memoryBarrier,                        // Pass the single global memory barrier.
-            0, nullptr, 0, nullptr);                  // No image/buffer memory barriers.
+        vkCmdPipelineBarrier(cmdBuf,                    
+            VK_PIPELINE_STAGE_TRANSFER_BIT,            
+            VK_PIPELINE_STAGE_HOST_BIT,                
+            0,                                         
+            1, &memoryBarrier,                         
+            0, nullptr, 0, nullptr);                   
     }
     EndSubmitWaitAndFreeCommandBuffer(mDevice, mComputeQueue, mCommandPool, cmdBuf);
 }
