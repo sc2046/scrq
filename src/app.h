@@ -20,7 +20,6 @@ public:
 	uint32_t mNumSamples{ 200 };
 	uint32_t mNumBounces{ 32 };
 
-
 	void initContext(bool validation);
 	void initAllocators();
 	void initImage();

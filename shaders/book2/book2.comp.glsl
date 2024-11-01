@@ -12,6 +12,8 @@ layout(binding = 1, set = 0) uniform accelerationStructureEXT tlas;
 layout(binding = 2, set = 0, scalar) buffer Spheres { Sphere spheres[]; };
 layout(binding = 3, set = 0, scalar) buffer Vertices { Vertex vertices[]; } meshVertices[MAX_MESH_COUNT];
 layout(binding = 4, set = 0, scalar) buffer Indices { uint indices[]; }		meshIndices[MAX_MESH_COUNT];
+layout(binding = 5, set = 0, scalar) buffer Materials { Material materials[]; }; // Contains all materials for the scene
+
 
 layout(push_constant, scalar) uniform PushConstants
 {
@@ -48,8 +50,8 @@ void main()
 vec3 rayColor(vec3 origin, vec3 direction, inout uint rngState)
 {
 	vec3 curAttenuation = vec3(1.0);
-
-	for (int depth = 0; depth < numBounces; ++depth)
+	vec3 result			= vec3(0.f);
+	for (int depth = 0; depth <= numBounces; ++depth)
 	{
 		// Initialise a ray query object.
 		rayQueryEXT rayQuery;
@@ -67,8 +69,6 @@ vec3 rayColor(vec3 origin, vec3 direction, inout uint rngState)
 			{
 				const int geometryID	= rayQueryGetIntersectionInstanceCustomIndexEXT(rayQuery, false);
 				const int materialID	= int(rayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetEXT(rayQuery, false));
-				
-				const Sphere sphere		= spheres[geometryID];
 
 				// TODO: perform intersection tests in object space so we dont need to store sphere buffer.
 				//const mat4x3 objectToWorld = rayQueryGetIntersectionObjectToWorldEXT(rayQuery, false);
@@ -78,23 +78,30 @@ vec3 rayColor(vec3 origin, vec3 direction, inout uint rngState)
 				//	hitInfo.material = materialID;
 				//	rayQueryGenerateIntersectionEXT(rayQuery, hitInfo.t);
 				//}
-
+				const Sphere sphere = spheres[geometryID];
 				if (hitSphere(sphere, origin, direction, hitInfo)) {
-					hitInfo.material = materialID; 
+					//hitInfo.material = materials[materialID]; 
+					Material material = materials[materialID];
+					
+					hitInfo.materialType	= material.type;
+					hitInfo.albedo			= material.albedo;
+
 					rayQueryGenerateIntersectionEXT(rayQuery, hitInfo.t);
 				}
 			}
 		}
 
+		// Determine hit info at closest hit
 		if (rayQueryGetIntersectionTypeEXT(rayQuery, true) == gl_RayQueryCommittedIntersectionNoneEXT) {
 			return curAttenuation * camera.backgroundColor;
 		}
-		// Fill intersection data for triangles.
 		else if (rayQueryGetIntersectionTypeEXT(rayQuery, true) == gl_RayQueryCommittedIntersectionTriangleEXT) {
 			
 			// Get the ID of the triangle
-			const int triangleID	= rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, true);
-			const int meshID		= rayQueryGetIntersectionInstanceCustomIndexEXT(rayQuery, true);
+			const uint meshID		= rayQueryGetIntersectionInstanceCustomIndexEXT(rayQuery, true);
+			const uint triangleID	= rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, true);
+			const uint materialID	= rayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetEXT(rayQuery, true);
+
 			// Get the indices of the vertices of the triangle
 			const uint i0 = meshIndices[meshID].indices[3 * triangleID + 0];
 			const uint i1 = meshIndices[meshID].indices[3 * triangleID + 1];
@@ -106,8 +113,8 @@ vec3 rayColor(vec3 origin, vec3 direction, inout uint rngState)
 			const Vertex v2 = meshVertices[meshID].vertices[i2];
 
 			// Get the barycentric coordinates of the intersection
-			vec3 barycentrics = vec3(0.f, rayQueryGetIntersectionBarycentricsEXT(rayQuery, true));
-			barycentrics.x = 1.f - barycentrics.y - barycentrics.z;
+			vec3 barycentrics	= vec3(0.f, rayQueryGetIntersectionBarycentricsEXT(rayQuery, true));
+			barycentrics.x		= 1.f - barycentrics.y - barycentrics.z;
 
 			// Compute the coordinates of the intersection
 			const vec3 objectPos	= v0.position * barycentrics.x + v1.position * barycentrics.y + v2.position * barycentrics.z;
@@ -119,24 +126,16 @@ vec3 rayColor(vec3 origin, vec3 direction, inout uint rngState)
 			hitInfo.t	= rayQueryGetIntersectionTEXT(rayQuery, true);
 			hitInfo.p	= rayQueryGetIntersectionObjectToWorldEXT(rayQuery, true) * vec4(objectPos, 1.0f);
 			hitInfo.gn	= normalize((objectGN * rayQueryGetIntersectionWorldToObjectEXT(rayQuery, true)).xyz);
-			hitInfo.sn = normalize((objectSN * rayQueryGetIntersectionWorldToObjectEXT(rayQuery, true)).xyz);
+			hitInfo.sn  = normalize((objectSN * rayQueryGetIntersectionWorldToObjectEXT(rayQuery, true)).xyz);
 			//hitInfo.uv	= objectUV;
-			//hitInfo.material = int(rayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetEXT(rayQuery, true)); //TODO: Requires materials.
-			
-			hitInfo.material = DIFFUSE;
-			hitInfo.color = vec3(0.2);
-			if (meshID == 1)
-			{
-				hitInfo.material = DIELECTRIC;
-				hitInfo.color = vec3(0.12, 0.45, 0.15);
-			}
-
-			//return 0.5f * (vec3(1.f) + hitInfo.sn);
+			//hitInfo.material = materials[materialID]; 
+			Material material		= materials[materialID];
+			hitInfo.materialType	= material.type;
+			hitInfo.albedo			= material.albedo;
 
 		}
-		// Fill intersection data for AABBs.
 		else {
-
+			// We already computed hit info for procedural geometry in the traversal loop.
 		}
 
 		// Now use material to determine scatter properties.
@@ -146,7 +145,7 @@ vec3 rayColor(vec3 origin, vec3 direction, inout uint rngState)
 
 		bool scatter;
 		vec3 emitted = vec3(0.f);
-		switch (hitInfo.material) {
+		switch (hitInfo.materialType) {
 		case DIFFUSE:
 			scatter = scatterDiffuse(origin, direction, hitInfo, attenuation, scatteredOrigin, scatteredDir, rngState);
 			break;
@@ -158,18 +157,22 @@ vec3 rayColor(vec3 origin, vec3 direction, inout uint rngState)
 			break;
 		case LIGHT:
 			scatter = false;
-			emitted = vec3(4.f);
+			emitted = hitInfo.albedo; // Assume the albedo represents emission for lights.
+			break;
 		default:
 			scatter = false;
 			break;
 		}
 		if (scatter) {
-			curAttenuation	*= attenuation;
-			curAttenuation	+= emitted;
+			result += (curAttenuation * emitted);
+			curAttenuation *= attenuation;
 			origin 			= scatteredOrigin;
 			direction		= scatteredDir;
 		}
-		else return emitted;
+		else {
+			result += (curAttenuation * emitted);
+			return result;
+		}
 	}
 	// Exceeded recursion - assume the sample provides no contribution to the light.
 	return vec3(0.f);

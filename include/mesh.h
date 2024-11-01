@@ -12,6 +12,7 @@ struct ObjMesh
 	std::vector<Vertex>		mVertices; 
 	std::vector<uint32_t>   mIndices;
 	glm::mat4				mTransform = glm::mat4(1.f);
+	uint32_t				mMaterialID;
 
     Buffer                  mVertexBuffer;
     Buffer                  mIndexBuffer;
@@ -40,11 +41,11 @@ struct ObjMesh
 				vertex.position.z = attrib.vertices[3 * index.vertex_index + 2];
 
 				// Normal
-				assert(index.normal_index >= 0);
-				vertex.normal.x = attrib.normals[3 * index.normal_index + 0];
-				vertex.normal.y = attrib.normals[3 * index.normal_index + 1];
-				vertex.normal.z = attrib.normals[3 * index.normal_index + 2];
-				
+				if (index.normal_index >= 0) {
+					vertex.normal.x = attrib.normals[3 * index.normal_index + 0];
+					vertex.normal.y = attrib.normals[3 * index.normal_index + 1];
+					vertex.normal.z = attrib.normals[3 * index.normal_index + 2];
+				}
 				// Texture Coordinate
 				if (index.texcoord_index >= 0) { // Check if texture coordinate exists
 					vertex.tex.x = attrib.texcoords[2 * index.texcoord_index + 0];

@@ -5,6 +5,8 @@
 
 /// Stores information from a ray-surface intersection point.
 /// 
+/// 
+/// 
 struct HitInfo
 {
 	float t;  // Ray parameter at the hit position.
@@ -12,11 +14,11 @@ struct HitInfo
 	vec3 gn; // Geometric normal.
 	vec3 sn; // Interpolated shading normal (for triangles).
 	//vec2 uv; // < UV texture coordinates
-	vec3 color;
-
-	uint material;
+	
+	uint materialType;
+	vec3 albedo; //Replacement for uv coordinates until textures are added.
+	//Material material;
 };
-
 
 
  void generateRay(Camera cam, vec2 pixel, uvec2 resolution, out vec3 origin, out vec3 direction)
@@ -91,7 +93,7 @@ bool hitSphere(vec3 worldO, vec3 worldD, mat4x3 worldToObject, mat4x3 objectToWo
 	hitInfo.p	= worldToObject * vec4(localO, 1.f);
 	hitInfo.gn	= normalize((n * worldToObject).xyz);
 	hitInfo.sn	= hitInfo.gn;								// For a sphere, the shading normal is the same as the geometric normal.
-	hitInfo.color = hitInfo.sn;
+	//hitInfo.color = hitInfo.sn;
 
 	//const auto& [phi, theta] = Spherical::direction_to_spherical_coordinates(normalize(n));
 	//const Vec2f uv = Vec2f(phi * INV_TWOPI, theta * INV_PI);
@@ -129,8 +131,8 @@ bool hitSphere(Sphere s, vec3 worldRayO, vec3 worldRayD, inout HitInfo hitInfo)
 	hitInfo.p = worldRayO + tHit * worldRayD;
 	hitInfo.gn = normalize(hitInfo.p - s.center);
 	hitInfo.sn = hitInfo.gn;
-	hitInfo.material = s.material;
-	hitInfo.color = s.color;
+	//hitInfo.material = s.material;
+	//hitInfo.color = s.color;
 
 	return true;
 }
@@ -236,7 +238,7 @@ vec3 offsetPositionAlongNormal(vec3 worldPosition, vec3 normal)
 
 bool scatterDiffuse(vec3 inO, vec3 inD, HitInfo hitInfo, out vec3 attenuation, out vec3 scatterO, out vec3 scatterD, inout uint rngState)
 {
-	attenuation = hitInfo.color;
+	attenuation = hitInfo.albedo;
 
 	// Avoid self-shadowing.
 	scatterO = offsetPositionAlongNormal(hitInfo.p, hitInfo.gn);
@@ -252,7 +254,7 @@ bool scatterDiffuse(vec3 inO, vec3 inD, HitInfo hitInfo, out vec3 attenuation, o
 
 bool scatterMetal(vec3 inO, vec3 inD, HitInfo hitInfo, out vec3 attenuation, out vec3 scatterO, out vec3 scatterD, inout uint rngState)
 {
-	attenuation = hitInfo.color;
+	attenuation = hitInfo.albedo;
 
 	// Avoid self-shadowing.
 	scatterO = offsetPositionAlongNormal(hitInfo.p, hitInfo.gn);

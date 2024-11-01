@@ -14,7 +14,7 @@ using vec3 = glm::vec3;
 
 
 // TODO: (Haclk) fix number of meshes a scene can contain.
-#define MAX_MESH_COUNT 12 
+#define MAX_MESH_COUNT 64 
 
 #define DIFFUSE		0
 #define METAL		1
@@ -43,9 +43,7 @@ struct Sphere
 {
 	vec3	center;
 	float	radius;
-
-	uint	material;
-	vec3	color;
+	uint	materialID;
 };
 
 struct AABB
@@ -65,10 +63,10 @@ struct Camera
 	float	focalDistance;
 };
 
-//struct Ray
-//{
-//	vec3 origin;
-//	vec3 direction;
-//};
+struct Material
+{
+	uint type;
+	vec3 albedo;
+};
 
 #endif // #ifndef COMMON_H
