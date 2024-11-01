@@ -61,18 +61,16 @@ struct HitInfo
 // into the local space of the surface. 
 // ==============================================================
 
-bool hitSphere(vec3 worldO, vec3 worldD, mat4x3 worldToObject, mat4x3 objectToWorld, inout HitInfo hitInfo)
+bool hitSphere(vec3 localO, vec3 localD, mat4x3 worldToObject, mat4x3 objectToWorld, inout HitInfo hitInfo)
 {
-	const vec3 localO = worldToObject * vec4(worldO, 1.0f);
-	const vec3 localD = normalize(worldToObject * vec4(worldD, 0.f));
 
-	const vec3 oc = localO;
-	const float a = dot(localD,localD);
-	const float half_b = dot(oc, localD);
-	const float c = dot(oc,oc) - 1.f;	//	TODO: in local space, radius is always 1?
+	const vec3 oc		= localO;
+	const float a		= dot(localD,localD);
+	const float half_b	= dot(oc, localD);
+	const float c		= dot(oc,oc) - 1.f;	//	TODO: in local space, radius is always 1?
 
 	const float discriminant = half_b * half_b - a * c;
-	if (discriminant < 0) return false;
+	if (discriminant < 0.f) return false;
 
 	// Find the nearest root that lies in the acceptable range.
 	float sqrtd = sqrt(discriminant);
@@ -85,15 +83,17 @@ bool hitSphere(vec3 worldO, vec3 worldD, mat4x3 worldToObject, mat4x3 objectToWo
 			return false;
 	}
 
-	const float tHit	= root;					// Ray parameter in object space
-	const vec3 p		= localO + tHit * localD;	// Hit point in local space
-	const vec3 n		= p;					// Surface normal in local space
+	// Hit info in object space.
+	const float tHit	= root;					
+	const vec3 p		= localO + tHit * localD;	
+	const vec3 n		= p;					
 
+
+	// Convert hit info to world space.
 	hitInfo.t	= tHit;									//t is unchanged because linear maps preserve distances!
-	hitInfo.p	= worldToObject * vec4(localO, 1.f);
+	hitInfo.p	= objectToWorld * vec4(p, 1.f);
 	hitInfo.gn	= normalize((n * worldToObject).xyz);
 	hitInfo.sn	= hitInfo.gn;								// For a sphere, the shading normal is the same as the geometric normal.
-	//hitInfo.color = hitInfo.sn;
 
 	//const auto& [phi, theta] = Spherical::direction_to_spherical_coordinates(normalize(n));
 	//const Vec2f uv = Vec2f(phi * INV_TWOPI, theta * INV_PI);
@@ -101,42 +101,6 @@ bool hitSphere(vec3 worldO, vec3 worldD, mat4x3 worldToObject, mat4x3 objectToWo
 
 	return true;
 }
-
-
-/// Intersects a ray against a sphere.
-/// If a valid intersection was found, fills the hitInfo struct, and returns true.
-/// Otherwise, returns false.
-bool hitSphere(Sphere s, vec3 worldRayO, vec3 worldRayD, inout HitInfo hitInfo)
-{
-	const vec3  oc = worldRayO - s.center;
-	const float a = dot(worldRayD, worldRayD);
-	const float b = 2.0 * dot(oc, worldRayD);
-	const float c = dot(oc, oc) - s.radius * s.radius;
-	const float discriminant = b * b - 4 * a * c;
-
-	if (discriminant < 0.f)
-		return false;
-
-	const float sqrtd = sqrt(discriminant);
-	float tHit = (-b - sqrtd) / (2.f * a);
-	if (tHit <= 0.001f || tHit >= hitInfo.t)
-	{
-		//Try other root
-		tHit = (-b + sqrtd) / a;
-		if (tHit <= 0.001f || tHit >= hitInfo.t)
-			return false;
-	}
-
-	hitInfo.t = tHit;
-	hitInfo.p = worldRayO + tHit * worldRayD;
-	hitInfo.gn = normalize(hitInfo.p - s.center);
-	hitInfo.sn = hitInfo.gn;
-	//hitInfo.material = s.material;
-	//hitInfo.color = s.color;
-
-	return true;
-}
-
 
 // ==============================================================
 // RNG

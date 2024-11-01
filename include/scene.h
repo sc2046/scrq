@@ -14,102 +14,88 @@ inline glm::vec3 random_vector() {
     return vec3(random_double(), random_double(), random_double());
 }
 
+struct Sphere
+{
+    vec3	center;
+    float	radius;
+    uint	materialID;
+};
+
 struct Scene
 {
     std::string                         mName;
     Camera				                mCamera;
 
 	std::vector<Sphere>                 mSpheres;
-	Buffer				                mSphereBuffer;
     std::vector<ObjMesh>                mMeshes;
 
     std::vector<Material>               mMaterials;
     Buffer                              mMaterialsBuffer;
 
-
     //Integrator                        mIntegrator;
- 
 
 };
 
-inline Scene createBook1Ch11Scene()
+
+inline Scene createShirleyBook1Scene()
 {
     Scene scene;
-    scene.mName = "MaterialTest";
+    scene.mName = "ShirleyBook1";
 
     scene.mCamera = {
-        .center = glm::vec3(0.f),
-        .eye = glm::vec3(0.f,0.f,-1.f),
+        .center = glm::vec3(13.f, 2.f, 3.f),
+        .eye = glm::vec3(0.f,0.f,0.f),
         .backgroundColor = glm::vec3(1.f),
-        .fovY = 90.f,
+        .fovY = 20.f,
         .focalDistance = 1.f
     };
 
-    scene.mMaterials.emplace_back(DIFFUSE, glm::vec3(0.8f, 0.8f, 0.f));
-    scene.mMaterials.emplace_back(DIFFUSE, glm::vec3(0.1f, 0.2f, 0.5f));
-    scene.mMaterials.emplace_back(DIELECTRIC, glm::vec3(1.f));
-    scene.mMaterials.emplace_back(METAL, glm::vec3(0.8f, 0.6f, 0.2f));
 
-    scene.mSpheres.emplace_back(glm::vec3(0.0, -100.5, -1.0), 100.0, 0);
-    scene.mSpheres.emplace_back(glm::vec3(0.0, 0.0, -1.2), 0.5, 1);
-    scene.mSpheres.emplace_back(glm::vec3(-1.0, 0.0, -1.0), 0.5, 2); // note ior is fixed at 1.5 in shader.
-    scene.mSpheres.emplace_back(glm::vec3(1.0, 0.0, -1.0), 0.5, 3);
-    
+    scene.mMaterials.emplace_back(DIFFUSE, glm::vec3(0.5f)/*, glm::vec3(0.f)*/);
+
     scene.mMeshes.resize(1);
     scene.mMeshes[0].loadFromFile("assets/xy_quad.obj");
-    scene.mMeshes[0].mTransform = glm::translate(glm::mat4(1.f), { 0.f,-500.f,0.f });
-    scene.mMeshes[0].mMaterialID = 0;
+    auto transform = glm::translate(glm::mat4(1.f), { 0.f,0,0.f });
+    transform = glm::rotate(transform, glm::radians(-90.f), glm::vec3(1.f, 0.f, 0.f));
+    transform = glm::scale(transform, glm::vec3(1000));
+    scene.mMeshes[0].mTransform = transform;
+    scene.mMeshes[0].mMaterialID = scene.mMaterials.size()-1;
+
+
+    for (int a = -11; a < 11; a++) {
+        for (int b = -11; b < 11; b++) {
+            const auto choose_mat = random_double();
+
+            glm::vec3 center(a + 0.9 * random_double(), 0.2, b + 0.9 * random_double());
+
+            if (glm::length(center - glm::vec3(4, 0.2, 0)) > 0.9) {
+
+                if (choose_mat < 0.8) {
+                    scene.mMaterials.emplace_back(DIFFUSE, random_vector());
+                    scene.mSpheres.emplace_back(center, 0.2f, scene.mMaterials.size()-1);
+                }
+                else if (choose_mat < 0.95) {
+                    scene.mMaterials.emplace_back(METAL, random_vector());
+                    scene.mSpheres.emplace_back(center, 0.2f, scene.mMaterials.size() - 1);
+                }
+                else {
+                    scene.mMaterials.emplace_back(METAL, random_vector());
+                    scene.mSpheres.emplace_back(center, 0.2f, scene.mMaterials.size() - 1);
+                }
+            }
+        }
+    }
+    scene.mMaterials.emplace_back(DIELECTRIC, glm::vec3(1.f));
+    scene.mSpheres.emplace_back(glm::vec3(0, 1, 0), 1.f, scene.mMaterials.size() - 1);
+
+    scene.mMaterials.emplace_back(DIFFUSE, glm::vec3(0.4f, 0.2f, 0.1f));
+    scene.mSpheres.emplace_back(glm::vec3(0, 1, 0), 1.f, scene.mMaterials.size() - 1);
+
+    scene.mMaterials.emplace_back(METAL, glm::vec3(0.7, 0.6, 0.5));
+    scene.mSpheres.emplace_back(glm::vec3(4, 1, 0), 1.f, scene.mMaterials.size() - 1);
 
     return scene;
 }
-
-//inline Scene createShirleyBook1Scene()
-//{
-//    Scene scene;
-//    scene.mName = "ShirleyBook1";
-//
-//    scene.mCamera = {
-//        .center = glm::vec3(13.f, 2.f, 3.f),
-//        .eye = glm::vec3(0.f,0.f,0.f),
-//        .backgroundColor = glm::vec3(1.f),
-//        .fovY = 20.f,
-//        .focalDistance = 1.f
-//    };
-//
-//
-//    // Ground
-//    scene.mMaterials.push_back
-//    scene.mSpheres.emplace_back(glm::vec3(0, -1000, 0), 1000.f, DIFFUSE, glm::vec3(0.5f));
-//
-//    for (int a = -11; a < 11; a++) {
-//        for (int b = -11; b < 11; b++) {
-//            const auto choose_mat = random_double();
-//
-//            glm::vec3 center(a + 0.9 * random_double(), 0.2, b + 0.9 * random_double());
-//
-//            if (glm::length(center - glm::vec3(4, 0.2, 0)) > 0.9) {
-//
-//                if (choose_mat < 0.8) {
-//                    auto albedo = random_vector();
-//                    scene.mSpheres.emplace_back(center, 0.2f, DIFFUSE, albedo);
-//                }
-//                else if (choose_mat < 0.95) {
-//                    auto albedo = random_vector();
-//                    scene.mSpheres.emplace_back(center, 0.2f, METAL, albedo);
-//                }
-//                else {
-//                    scene.mSpheres.emplace_back(center, 0.2f, DIELECTRIC, glm::vec3(1.f));
-//                }
-//            }
-//        }
-//    }
-//    scene.mSpheres.emplace_back(glm::vec3(0, 1, 0), 1.f, DIELECTRIC, glm::vec3(1.f));
-//    scene.mSpheres.emplace_back(glm::vec3(-4, 1, 0), 1.f, DIFFUSE, glm::vec3(0.4f, 0.2f, 0.1f));
-//    scene.mSpheres.emplace_back(glm::vec3(4, 1, 0), 1.f, METAL, glm::vec3(0.7, 0.6, 0.5));
-//
-//    return scene;
-//}
-//
 
 
 inline Scene createSponzaBuddhaScene()
@@ -126,9 +112,7 @@ inline Scene createSponzaBuddhaScene()
     };
 
     scene.mMaterials.emplace_back(DIFFUSE,  glm::vec3(0.5f));
-    scene.mMaterials.emplace_back(DIFFUSE, glm::vec3(0.12, 0.45, 0.15));
-
-
+    scene.mMaterials.emplace_back(DIELECTRIC, glm::vec3(0.12, 0.45, 0.15));
 
     scene.mMeshes.resize(2);
     scene.mMeshes[0].loadFromFile("assets/sponza.obj");
@@ -163,7 +147,7 @@ inline Scene createCornellBoxScene()
     scene.mMaterials.emplace_back(LIGHT, glm::vec3(15)); // light
 
     scene.mMaterials.emplace_back(DIFFUSE, glm::vec3(0.75, 0.25, 0.25)); // red sphere
-    scene.mMaterials.emplace_back(DIFFUSE, glm::vec3(0.75, 0.25, 0.25)); // green sphere
+    scene.mMaterials.emplace_back(DIFFUSE, glm::vec3(0.25, 0.75, 0.25)); // green sphere
 
 
 
@@ -215,11 +199,8 @@ inline Scene createCornellBoxScene()
     scene.mMeshes[5].mTransform = transform;
     scene.mMeshes[5].mMaterialID = 3;
 
-
-    scene.mSpheres.emplace_back(glm::vec3(0, 500, 0), 1.f, 0);
-
-    //scene.mSpheres.emplace_back(glm::vec3(140, -177.5, 100), 100.f, 5);
-    //scene.mSpheres.emplace_back(glm::vec3(-140, -177.5, -100), 100.f, 4);
+    scene.mSpheres.emplace_back(glm::vec3(-140, -177.5, -100), 100.f, 4);
+    scene.mSpheres.emplace_back(glm::vec3(140, -177.5, 100), 100.f, 5);
 
     return scene;
 }

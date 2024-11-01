@@ -2,6 +2,7 @@
 #extension GL_EXT_ray_query : require
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_GOOGLE_include_directive : require
+
 #include "host_device_common.h"
 #include "device_common.glsl"
 
@@ -9,11 +10,9 @@ layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 layout(binding = 0, set = 0, rgba32f) uniform image2D storageImage;
 layout(binding = 1, set = 0) uniform accelerationStructureEXT tlas;
-layout(binding = 2, set = 0, scalar) buffer Spheres { Sphere spheres[]; };
-layout(binding = 3, set = 0, scalar) buffer Vertices { Vertex vertices[]; } meshVertices[MAX_MESH_COUNT];
-layout(binding = 4, set = 0, scalar) buffer Indices { uint indices[]; }		meshIndices[MAX_MESH_COUNT];
-layout(binding = 5, set = 0, scalar) buffer Materials { Material materials[]; }; // Contains all materials for the scene
-
+layout(binding = 2, set = 0, scalar) buffer Vertices { Vertex vertices[]; } meshVertices[MAX_MESH_COUNT];	// Contains vertex buffers for meshes in the scene
+layout(binding = 3, set = 0, scalar) buffer Indices { uint indices[]; }		meshIndices[MAX_MESH_COUNT];	// Contains index buffers of meshes in the scene.
+layout(binding = 4, set = 0, scalar) buffer Materials { Material materials[]; };							// Contains all materials for the scene
 
 layout(push_constant, scalar) uniform PushConstants
 {
@@ -67,27 +66,27 @@ vec3 rayColor(vec3 origin, vec3 direction, inout uint rngState)
 			// For procedural geometry (i.e. geometry defined by AABBs), we must handle intersection routines ourselves.
 			if (rayQueryGetIntersectionTypeEXT(rayQuery, false) == gl_RayQueryCandidateIntersectionAABBEXT)
 			{
-				const int geometryID	= rayQueryGetIntersectionInstanceCustomIndexEXT(rayQuery, false);
-				const int materialID	= int(rayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetEXT(rayQuery, false));
+				// For procedural geometry, we use the custom index to determine the type of the geometry.
+				const uint geometryType	= rayQueryGetIntersectionInstanceCustomIndexEXT(rayQuery, false);
+				const uint materialID	= rayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetEXT(rayQuery, false);
 
-				// TODO: perform intersection tests in object space so we dont need to store sphere buffer.
-				//const mat4x3 objectToWorld = rayQueryGetIntersectionObjectToWorldEXT(rayQuery, false);
-				//const mat4x3 worldToObject = rayQueryGetIntersectionWorldToObjectEXT(rayQuery, false);
+				// TODO: perform intersection tests in object space to simplify intersecion routines.
+				// (FOr spheres it doesnt really matter but it might help if you want to add other types of procedural geometry.)
+				const mat4x3 objectToWorld = rayQueryGetIntersectionObjectToWorldEXT(rayQuery, false);
+				const mat4x3 worldToObject = rayQueryGetIntersectionWorldToObjectEXT(rayQuery, false);
+				
+				const vec3 localO = rayQueryGetIntersectionObjectRayOriginEXT(rayQuery, false);
+				const vec3 localD = rayQueryGetIntersectionObjectRayDirectionEXT(rayQuery, false);
 
-				//if (hitSphere(origin, direction, worldToObject, objectToWorld, hitInfo)) {
-				//	hitInfo.material = materialID;
-				//	rayQueryGenerateIntersectionEXT(rayQuery, hitInfo.t);
-				//}
-				const Sphere sphere = spheres[geometryID];
-				if (hitSphere(sphere, origin, direction, hitInfo)) {
-					//hitInfo.material = materials[materialID]; 
+				if ( geometryType == SPHERE_CUSTOM_INDEX && hitSphere(localO, localD,  worldToObject, objectToWorld, hitInfo)) {
 					Material material = materials[materialID];
-					
-					hitInfo.materialType	= material.type;
-					hitInfo.albedo			= material.albedo;
-
+						
+					hitInfo.materialType = material.type;
+					hitInfo.albedo = material.albedo;
 					rayQueryGenerateIntersectionEXT(rayQuery, hitInfo.t);
 				}
+
+				// Other procedural geometry...
 			}
 		}
 
@@ -128,8 +127,8 @@ vec3 rayColor(vec3 origin, vec3 direction, inout uint rngState)
 			hitInfo.gn	= normalize((objectGN * rayQueryGetIntersectionWorldToObjectEXT(rayQuery, true)).xyz);
 			hitInfo.sn  = normalize((objectSN * rayQueryGetIntersectionWorldToObjectEXT(rayQuery, true)).xyz);
 			//hitInfo.uv	= objectUV;
-			//hitInfo.material = materials[materialID]; 
 			Material material		= materials[materialID];
+
 			hitInfo.materialType	= material.type;
 			hitInfo.albedo			= material.albedo;
 
@@ -137,6 +136,7 @@ vec3 rayColor(vec3 origin, vec3 direction, inout uint rngState)
 		else {
 			// We already computed hit info for procedural geometry in the traversal loop.
 		}
+
 
 		// Now use material to determine scatter properties.
 		vec3 attenuation;

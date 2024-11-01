@@ -135,56 +135,7 @@ void VulkanApp::initAllocators()
 // Uploads all scene geometry into GPU buffers;
 void VulkanApp::uploadScene()
 {
-    mScene = createSponzaBuddhaScene();
-
-    // Upload AABB (sphere) data.
-    {
-        Buffer sphereStagingBuffer;
-        sphereStagingBuffer.mByteSize = mScene.mSpheres.size() * sizeof(Sphere);
-
-        const VkBufferCreateInfo stagingbufferCreateInfo{
-                .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-                .size = sphereStagingBuffer.mByteSize,
-                .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                .sharingMode = VK_SHARING_MODE_EXCLUSIVE
-        };
-        const VmaAllocationCreateInfo stagingBufferAllocInfo{
-                .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT,
-                .usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
-                .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-        };
-        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &stagingbufferCreateInfo, &stagingBufferAllocInfo, &sphereStagingBuffer.mBuffer, &sphereStagingBuffer.mAllocation, nullptr));
-
-        void* sdata;
-        vmaMapMemory(mVmaAllocator, sphereStagingBuffer.mAllocation, (void**)&sdata);
-        memcpy(sdata, mScene.mSpheres.data(), mScene.mSpheres.size() * sizeof(Sphere));
-        vmaUnmapMemory(mVmaAllocator, sphereStagingBuffer.mAllocation);
-
-        // Create GPU buffer for the spheres.
-        mScene.mSphereBuffer.mByteSize = sphereStagingBuffer.mByteSize;
-
-        const VkBufferCreateInfo deviceBufferCreateInfo{
-            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .size = mScene.mSphereBuffer.mByteSize,
-            .usage =
-                VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
-                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-                VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
-            .sharingMode = VK_SHARING_MODE_EXCLUSIVE
-        };
-        const VmaAllocationCreateInfo deviceBufferAllocInfo{ .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, };
-        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &deviceBufferCreateInfo, &deviceBufferAllocInfo, &mScene.mSphereBuffer.mBuffer, &mScene.mSphereBuffer.mAllocation, nullptr));
-        mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, mScene.mSphereBuffer.mBuffer, mScene.mSphereBuffer.mAllocation);});
-
-        VkCommandBuffer cmdBuf = AllocateAndBeginOneTimeCommandBuffer(mDevice, mCommandPool);
-        {
-            VkBufferCopy copy{ .srcOffset = 0, .dstOffset = 0, .size = mScene.mSphereBuffer.mByteSize };
-            vkCmdCopyBuffer(cmdBuf, sphereStagingBuffer.mBuffer, mScene.mSphereBuffer.mBuffer, 1, &copy);
-        }
-        EndSubmitWaitAndFreeCommandBuffer(mDevice, mComputeQueue, mCommandPool, cmdBuf);
-        vmaDestroyBuffer(mVmaAllocator, sphereStagingBuffer.mBuffer, sphereStagingBuffer.mAllocation);
-    }
+    mScene = createCornellBoxScene();
 
     //TODO: Use same staging buffer for all meshes (set size equal to largest of meshes).
     // Upload triangle mesh data
@@ -262,7 +213,6 @@ void VulkanApp::uploadScene()
         vmaDestroyBuffer(mVmaAllocator, indexStagingBuffer.mBuffer, indexStagingBuffer.mAllocation);
 
     }
-
 
     // Upload materials.
     {
@@ -540,15 +490,14 @@ void VulkanApp::initMeshBlas(ObjMesh& mesh)
 
 void VulkanApp::initSceneTLAS()
 {
-    uint32_t instanceIndex = 0;
     std::vector<VkAccelerationStructureInstanceKHR> instances;
     // TODO (Hack): For now, do triangle meshes first because the value of instanceCustomIndex will be used to index descriptors.
-// Create an instance for each triangle mesh in the scene.
+    // For triangle meshes, the custom index will store the id of the instance.
     for (uint32_t i = 0; i < mScene.mMeshes.size(); ++i)
     {
         instances.push_back(VkAccelerationStructureInstanceKHR{
             .transform = glmMat4ToVkTransformMatrixKHR(mScene.mMeshes[i].mTransform),
-            .instanceCustomIndex = instanceIndex++,   // We use the custom index in the shader to access the instance transform.
+            .instanceCustomIndex = i,                                     
             .mask = 0xFF,                                                                       // No masking. Ray will always be visible.
             .instanceShaderBindingTableRecordOffset = mScene.mMeshes[i].mMaterialID,
             .flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR,                 // No face culling, etc.
@@ -557,6 +506,7 @@ void VulkanApp::initSceneTLAS()
     }
 
     // Create an instance for each sphere in the scene.
+    // Each sphere instance has it's own transform, but shares the same custom index.
     for (uint32_t i = 0; i < mScene.mSpheres.size(); ++i)
     {
         glm::mat4 transform = glm::translate(glm::mat4(1.f), mScene.mSpheres[i].center);
@@ -564,7 +514,7 @@ void VulkanApp::initSceneTLAS()
 
         instances.push_back(VkAccelerationStructureInstanceKHR{
            .transform = glmMat4ToVkTransformMatrixKHR(transform),
-           .instanceCustomIndex = instanceIndex++,                                                    // We use the custom index in the shader to access the instance transform.
+           .instanceCustomIndex = SPHERE_CUSTOM_INDEX,                                 // We use the custom index in the shader to determine the geometry type.
            .mask = 0xFF,                                                                // No masking. Ray will always be visible.
            .instanceShaderBindingTableRecordOffset = mScene.mSpheres[i].materialID,       // We use this to determine the material of the surface.
            .flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR,          // No   face culling, etc.
@@ -572,9 +522,10 @@ void VulkanApp::initSceneTLAS()
             });
     }
 
+    // Other procedural Geometry...
 
-    const uint32_t kInstanceCount = instances.size();
-    
+    const uint32_t kInstanceCount =instances.size();
+
     //TODO: Finish
     // Upload instanceData to the device via a staging buffer.
     {
@@ -782,56 +733,26 @@ void VulkanApp::initImage()
 
 void VulkanApp::initDescriptorSets()
 {
-    std::array<VkDescriptorSetLayoutBinding, 6> bindingInfo;
-    // Buffer for image data.
-    bindingInfo[0] = {
-        .binding = 0,
-        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-        .descriptorCount = 1, 
-        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
-    };
-    // Scene TLAS.
-    bindingInfo[1] = {
-    .binding = 1,
-    .descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
-    .descriptorCount = 1,
-    .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
-    };
-    // Buffer for AABBs.
-    bindingInfo[2] = {
-    .binding = 2,
-    .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-    .descriptorCount = 1,
-    .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
-    };
+    std::vector<VkDescriptorSetLayoutBinding> bindingInfo;
+
+    // For image data Buffer.
+    bindingInfo.emplace_back(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+
+    // For scene TLAS.
+    bindingInfo.emplace_back(1, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_COMPUTE_BIT);
 
     //TODO: (HACK) Make count == meshes.size()
-    
+
     // Buffer for triangle mesh vertices.
-    bindingInfo[3] = {
-    .binding = 3,
-    .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-    .descriptorCount = MAX_MESH_COUNT,
-    .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
-    };
+    bindingInfo.emplace_back(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, MAX_MESH_COUNT, VK_SHADER_STAGE_COMPUTE_BIT);
     // Buffer for triangle mesh indices.
-    bindingInfo[4] = {
-        .binding = 4,
-        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        .descriptorCount = MAX_MESH_COUNT,
-        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
-    };
+    bindingInfo.emplace_back(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, MAX_MESH_COUNT, VK_SHADER_STAGE_COMPUTE_BIT);
     // Buffer for scene materials.
-    bindingInfo[5] = {
-        .binding = 5,
-        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        .descriptorCount = 1,
-        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
-    };
+    bindingInfo.emplace_back(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
 
     const VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .bindingCount = bindingInfo.size(),
+        .bindingCount = static_cast<uint32_t>(bindingInfo.size()),
         .pBindings = bindingInfo.data()
     };
     VK_CHECK(vkCreateDescriptorSetLayout(mDevice, &descriptorSetLayoutCreateInfo, nullptr, &mDescriptorSetLayout););
@@ -840,7 +761,7 @@ void VulkanApp::initDescriptorSets()
     // Create a descriptor pool for the resources we will need.
     std::array<VkDescriptorPoolSize, 3> sizes;
     sizes[0] = { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1 };
-    sizes[1] = { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2 + (2 * MAX_MESH_COUNT) };
+    sizes[1] = { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1 + (2 * MAX_MESH_COUNT) };
     sizes[2] = { VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1 };
 
     const VkDescriptorPoolCreateInfo info{
@@ -862,7 +783,7 @@ void VulkanApp::initDescriptorSets()
     VK_CHECK(vkAllocateDescriptorSets(mDevice, &descriptorSetAllocInfo, &mDescriptorSet););
 
     // Point the descriptor sets to the resources.
-    std::array<VkWriteDescriptorSet, 6> writeDescriptorSets;
+    std::array<VkWriteDescriptorSet, 5> writeDescriptorSets;
 
     const VkDescriptorImageInfo imageLinearDescriptor{ .imageView = mImageView, .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
     writeDescriptorSets[0] = {
@@ -890,16 +811,6 @@ void VulkanApp::initDescriptorSets()
         .descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
     };
 
-    const VkDescriptorBufferInfo sphereBufferDescriptor{ .buffer = mScene.mSphereBuffer.mBuffer, .range = mScene.mSphereBuffer.mByteSize };
-    writeDescriptorSets[2] = {
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .dstSet = mDescriptorSet,
-        .dstBinding = 2,
-        .dstArrayElement = 0,
-        .descriptorCount = 1,
-        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        .pBufferInfo = &sphereBufferDescriptor
-    };
 
     // Create a descriptor array for mesh vertices/indices.
     std::vector<VkDescriptorBufferInfo> meshVertexBufferDescriptorArrayInfo;
@@ -909,6 +820,15 @@ void VulkanApp::initDescriptorSets()
         meshVertexBufferDescriptorArrayInfo.emplace_back(mScene.mMeshes[i].mVertexBuffer.mBuffer, 0, mScene.mMeshes[i].mVertexBuffer.mByteSize);
         meshIndexBufferDescriptorArrayInfo.emplace_back(mScene.mMeshes[i].mIndexBuffer.mBuffer, 0, mScene.mMeshes[i].mIndexBuffer.mByteSize);
     }
+    writeDescriptorSets[2] = {
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = mDescriptorSet,
+        .dstBinding = 2,
+        .dstArrayElement = 0,
+        .descriptorCount = static_cast<uint32_t>(mScene.mMeshes.size()),
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        .pBufferInfo = meshVertexBufferDescriptorArrayInfo.data()
+    };
     writeDescriptorSets[3] = {
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
         .dstSet = mDescriptorSet,
@@ -916,23 +836,14 @@ void VulkanApp::initDescriptorSets()
         .dstArrayElement = 0,
         .descriptorCount = static_cast<uint32_t>(mScene.mMeshes.size()),
         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        .pBufferInfo = meshVertexBufferDescriptorArrayInfo.data()
-    };
-    writeDescriptorSets[4] = {
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .dstSet = mDescriptorSet,
-        .dstBinding = 4,
-        .dstArrayElement = 0,
-        .descriptorCount = static_cast<uint32_t>(mScene.mMeshes.size()),
-        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         .pBufferInfo = meshIndexBufferDescriptorArrayInfo.data()
     };
 
     const VkDescriptorBufferInfo materialBufferDescriptorInfo{ .buffer = mScene.mMaterialsBuffer.mBuffer, .range = mScene.mMaterialsBuffer.mByteSize };
-    writeDescriptorSets[5] = {
+    writeDescriptorSets[4] = {
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
         .dstSet = mDescriptorSet,
-        .dstBinding = 5,
+        .dstBinding = 4,
         .dstArrayElement = 0,
         .descriptorCount = 1,
         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
