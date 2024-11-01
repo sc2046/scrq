@@ -36,3 +36,23 @@ namespace fs = std::filesystem;
             abort();                                                    \
         }                                                               \
     } while (0)
+
+
+struct Buffer
+{
+    VkBuffer		mBuffer;
+    VmaAllocation	mAllocation;
+    uint32_t		mByteSize;
+};
+
+struct Image
+{
+    VkImage         mImage;
+    VmaAllocation   mAllocation;
+};
+
+struct AccelerationStructure
+{
+    VkAccelerationStructureKHR	mHandle;
+    Buffer						mData; // Stores the Acceleration structure data.
+};

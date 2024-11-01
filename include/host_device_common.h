@@ -16,7 +16,7 @@ using vec3 = glm::vec3;
 // TODO: (Haclk) fix number of meshes a scene can contain.
 #define MAX_MESH_COUNT 64 
 #define SPHERE_CUSTOM_INDEX MAX_MESH_COUNT 
-
+#define MAX_TEXTURE_COUNT 500
 
 #define DIFFUSE		0
 #define METAL		1

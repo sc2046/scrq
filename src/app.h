@@ -51,15 +51,15 @@ private:
 	VkDebugUtilsMessengerEXT	mDebugMessenger;
 	VkQueue						mComputeQueue;
 	uint32_t					mComputeQueueFamily;
+	VmaAllocator				mVmaAllocator;
 
 	// Allocators.
 	//-----------------------------------------------
-	VmaAllocator				mVmaAllocator;
-	VkDescriptorPool			mDescriptorPool;
 	VkCommandPool				mCommandPool;
 
 	// Descriptors
 	//-----------------------------------------------
+	VkDescriptorPool			mDescriptorPool;
 	VkDescriptorSetLayout		mDescriptorSetLayout;
 	VkDescriptorSet				mDescriptorSet;
 
@@ -68,7 +68,15 @@ private:
 	Image						mImageLinear;
 	Image						mImageRender;
 	VkImageView					mImageView;
-	
+
+	// Texture
+	//-----------------------------------------------
+	Image		mTextureImage;
+	VkImageView mTextureImageView;
+	VkSampler	mTextureSampler;
+	uint32_t	mTextureByteSize;
+	VkExtent2D	mTextureExtents;
+
 	// Acceleration structures
 	//-----------------------------------------------
 	AccelerationStructure		mAabbBlas;

@@ -15,6 +15,9 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+
 void VulkanApp::initContext(bool validation)
 {
     // Create instance
@@ -51,8 +54,11 @@ void VulkanApp::initContext(bool validation)
     VkPhysicalDeviceVulkan13Features features13{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
 
     // Require these features for the extensions this app uses.
-    VkPhysicalDeviceAccelerationStructureFeaturesKHR    asFeatures{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR, .accelerationStructure = true };
-    VkPhysicalDeviceRayQueryFeaturesKHR                 rayQueryFeatures{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR, .rayQuery = true };
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR    asFeatures{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
+    asFeatures.accelerationStructure = true;
+    
+    VkPhysicalDeviceRayQueryFeaturesKHR rayQueryFeatures{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR };
+    rayQueryFeatures.rayQuery = true;
 
 
     // Select a physical device that supports the required extensions
@@ -102,11 +108,8 @@ void VulkanApp::initContext(bool validation)
     mDeletionQueue.push_function([&]() {    vkDestroyInstance(mInstance, nullptr);});
     mDeletionQueue.push_function([&]() {    vkb::destroy_debug_utils_messenger(mInstance, mDebugMessenger);});
     mDeletionQueue.push_function([&]() {    vkDestroyDevice(mDevice, nullptr);});
-}
 
-void VulkanApp::initAllocators()
-{
-    // Create memory allocator.
+    // Initialize VMA.
     VmaVulkanFunctions f{
         .vkGetInstanceProcAddr = vkGetInstanceProcAddr,
         .vkGetDeviceProcAddr = vkGetDeviceProcAddr
@@ -121,11 +124,15 @@ void VulkanApp::initAllocators()
     VK_CHECK(vmaCreateAllocator(&allocatorInfo, &mVmaAllocator));
     mDeletionQueue.push_function([&]() {    vmaDestroyAllocator(mVmaAllocator);});
 
+}
+
+void VulkanApp::initAllocators()
+{
     // Create a single-use command pool.
     // Command buffers allocated from this pool will not be re-used.
     VkCommandPoolCreateInfo commanddPoolCreateInfo{
     .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-    .flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
+    .flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT, // Most command buffers allocated will be short-lived, single-use
     .queueFamilyIndex = mComputeQueueFamily,
     };
     VK_CHECK(vkCreateCommandPool(mDevice, &commanddPoolCreateInfo, nullptr, &mCommandPool));
@@ -258,9 +265,120 @@ void VulkanApp::uploadScene()
         EndSubmitWaitAndFreeCommandBuffer(mDevice, mComputeQueue, mCommandPool, cmdBuf);
         vmaDestroyBuffer(mVmaAllocator, materialsStagingBuffer.mBuffer, materialsStagingBuffer.mAllocation);
     }
+
+    // Upload Texture
+    {
+        //stbi_load("")
+
+        // Load external image daat.
+        uint32_t magenta = glm::packUnorm4x8(glm::vec4(1, 0, 1, 1));
+        uint32_t black = glm::packUnorm4x8(glm::vec4(0, 0, 0, 0));
+        mTextureExtents.width = mTextureExtents.height = 16;
+        std::array<uint32_t, 16 * 16 > pixels; //for 16x16 checkerboard texture
+        for (int x = 0; x < 16; x++) {
+            for (int y = 0; y < 16; y++) {
+                pixels[y * 16 + x] = ((x % 2) ^ (y % 2)) ? magenta : black;
+            }
+        }
+        mTextureByteSize = pixels.size() * 4;
+
+        // Create an image to store texture data.
+        // Make sure to store the data in device-local memory.
+        VkImageCreateInfo imageCreateInfo{
+            .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            .imageType = VK_IMAGE_TYPE_2D,
+            .format = VK_FORMAT_R8G8B8A8_UNORM,
+            .extent = VkExtent3D{16, 16, 1} ,
+            .mipLevels = 1,  
+            .arrayLayers = 1,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .tiling = VK_IMAGE_TILING_OPTIMAL,  // Use a gpu-friendly layout.
+            .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
+        };
+        VmaAllocationCreateInfo allocinfo = {
+            .usage          = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+            .requiredFlags  = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+        };
+        VK_CHECK(vmaCreateImage(mVmaAllocator, &imageCreateInfo, &allocinfo, &mTextureImage.mImage, &mTextureImage.mAllocation, nullptr));
+        mDeletionQueue.push_function([&]() {vmaDestroyImage(mVmaAllocator, mTextureImage.mImage, mTextureImage.mAllocation);});
+
+        // Create an image view for the image.
+        VkImageViewCreateInfo info = {};
+        info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        info.pNext = nullptr;
+        info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        info.image = mTextureImage.mImage;
+        info.format = VK_FORMAT_R8G8B8A8_UNORM;
+        info.subresourceRange = { 
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0, .levelCount = 1,
+            .baseArrayLayer = 0,.layerCount = 1 };
+
+        VK_CHECK(vkCreateImageView(mDevice, &info, nullptr, &mTextureImageView));
+        mDeletionQueue.push_function([&]() {vkDestroyImageView(mDevice, mTextureImageView, nullptr);});
+
+        // Copy pixel data to a staging buffer (apparently using a staging buffer is faster than a staging image)
+        Buffer imageStagingBuffer = createHostVisibleStagingBuffer(mVmaAllocator, mTextureByteSize);
+
+        //mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, imageStagingBuffer.mBuffer, imageStagingBuffer.mAllocation);});
+
+        void* data;
+        vmaMapMemory(mVmaAllocator, imageStagingBuffer.mAllocation, (void**)&data);
+        memcpy(data, imageStagingBuffer.mAllocation, mTextureByteSize);
+        vmaUnmapMemory(mVmaAllocator, imageStagingBuffer.mAllocation);
+
+
+        // Transition the image layout into VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL for copying from staging buffer.
+        // Then copy data from the staging buffer to the device.
+        // Then transition the image layout into VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL for sampling from shader.
+        VkCommandBuffer uploadCmdBuffer = AllocateAndBeginOneTimeCommandBuffer(mDevice, mCommandPool);
+        {
+
+            // Image memory barrier for `imageRender` from UNDEFINED to GENERAL layout:
+            VkImageMemoryBarrier imageBarrier = {};
+            imageBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            imageBarrier.srcAccessMask = 0;
+            imageBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            imageBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            imageBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            imageBarrier.image = mTextureImage.mImage;
+            imageBarrier.subresourceRange = {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1 };
+
+            vkCmdPipelineBarrier(uploadCmdBuffer,
+                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, 
+                0,
+                0, nullptr,
+                0, nullptr,
+                1, &imageBarrier);
+
+            VkBufferImageCopy region{};
+            region.bufferOffset = 0;
+            region.bufferRowLength = 0;
+            region.bufferImageHeight = 0;
+            region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            region.imageSubresource.mipLevel = 0;
+            region.imageSubresource.baseArrayLayer = 0;
+            region.imageSubresource.layerCount = 1;
+            region.imageOffset = { 0, 0, 0 };
+            region.imageExtent = { mTextureExtents.width, mTextureExtents.height, 1 };
+            vkCmdCopyBufferToImage(uploadCmdBuffer, imageStagingBuffer.mBuffer, mTextureImage.mImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+        }
+        EndSubmitWaitAndFreeCommandBuffer(mDevice, mComputeQueue, mCommandPool, uploadCmdBuffer);
+
+        vmaDestroyBuffer(mVmaAllocator, imageStagingBuffer.mBuffer, imageStagingBuffer.mAllocation);
+    }
 }
 
-// Creates a blas for an AABB. In local space, the AABB is centered at the origin with a half-extents of 1.
+// Creates a blas for an AABB centered at the origin, with a half-extents of 1.
 void VulkanApp::initAabbBlas()
 {
     // First need to create buffer for the aabb, which will be used to build the BLAS. 
@@ -655,7 +773,7 @@ void VulkanApp::initImage()
         .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
         .image = mImageRender.mImage,
         .viewType = VK_IMAGE_VIEW_TYPE_2D,
-        .format = VK_FORMAT_R32G32B32A32_SFLOAT, // Use same format as defined in the image
+        .format = imageCreateInfo.format, // Use same format as defined in the image
         .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
         .baseMipLevel = 0, .levelCount = 1,
         .baseArrayLayer = 0,.layerCount = 1 }
@@ -731,18 +849,20 @@ void VulkanApp::initImage()
 
 }
 
+
+// Defines the layout for the descriptor set.
+// Creates a descriptor pool to allocate descriptors from.
+// Allocates a descriptor set from the pool.
+// Binds the descriptors in the set to their resources.
 void VulkanApp::initDescriptorSets()
 {
     std::vector<VkDescriptorSetLayoutBinding> bindingInfo;
 
     // For image data Buffer.
     bindingInfo.emplace_back(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-
     // For scene TLAS.
     bindingInfo.emplace_back(1, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-
     //TODO: (HACK) Make count == meshes.size()
-
     // Buffer for triangle mesh vertices.
     bindingInfo.emplace_back(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, MAX_MESH_COUNT, VK_SHADER_STAGE_COMPUTE_BIT);
     // Buffer for triangle mesh indices.
@@ -782,7 +902,7 @@ void VulkanApp::initDescriptorSets()
     };
     VK_CHECK(vkAllocateDescriptorSets(mDevice, &descriptorSetAllocInfo, &mDescriptorSet););
 
-    // Point the descriptor sets to the resources.
+    // Bind the descriptor set to the resources.
     std::array<VkWriteDescriptorSet, 5> writeDescriptorSets;
 
     const VkDescriptorImageInfo imageLinearDescriptor{ .imageView = mImageView, .imageLayout = VK_IMAGE_LAYOUT_GENERAL};

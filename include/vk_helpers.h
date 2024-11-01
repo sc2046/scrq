@@ -2,24 +2,6 @@
 
 #include <vk_types.h>
 
-struct Buffer
-{
-    VkBuffer		mBuffer;
-    VmaAllocation	mAllocation;
-    uint32_t		mByteSize;
-};
-
-struct Image
-{
-    VkImage mImage;
-    VmaAllocation mAllocation;
-};
-
-struct AccelerationStructure
-{
-    VkAccelerationStructureKHR	mHandle;
-    Buffer						mData; // Stores the Acceleration structure data.
-};
 
 inline VkDeviceAddress GetBufferDeviceAddress(VkDevice device, VkBuffer buffer)
 {
@@ -60,6 +42,25 @@ inline void EndSubmitWaitAndFreeCommandBuffer(VkDevice device, VkQueue queue, Vk
     VK_CHECK(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
     VK_CHECK(vkQueueWaitIdle(queue));
     vkFreeCommandBuffers(device, cmdPool, 1, &cmdBuffer);
+}
+
+// TODO: Add additional usage, flags?
+inline Buffer createHostVisibleStagingBuffer(VmaAllocator allocator, uint32_t size_bytes)
+{
+    Buffer buf;
+    VkBufferCreateInfo createInfo{
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = size_bytes,
+        .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+    };
+    const VmaAllocationCreateInfo allocCreateInfo{
+            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT,
+            .usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+            .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    };
+    VK_CHECK(vmaCreateBuffer(allocator, &createInfo, &allocCreateInfo, &buf.mBuffer, &buf.mAllocation, nullptr));
+    return buf;
 }
 
 // Loads binary data from a file

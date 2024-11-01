@@ -21,6 +21,14 @@ struct Sphere
     uint	materialID;
 };
 
+struct Texture
+{
+    VkImage     mImage;
+    VkImageView mImageView;
+    VkExtent3D  mExtents;       // Width, height, depth
+    VkFormat    mFormat;        // e.g. R32G32B32A32.
+};
+
 struct Scene
 {
     std::string                         mName;
@@ -28,6 +36,8 @@ struct Scene
 
 	std::vector<Sphere>                 mSpheres;
     std::vector<ObjMesh>                mMeshes;
+
+    Texture                             mTextures;
 
     std::vector<Material>               mMaterials;
     Buffer                              mMaterialsBuffer;

@@ -14,6 +14,7 @@ layout(binding = 2, set = 0, scalar) buffer Vertices { Vertex vertices[]; } mesh
 layout(binding = 3, set = 0, scalar) buffer Indices { uint indices[]; }		meshIndices[MAX_MESH_COUNT];	// Contains index buffers of meshes in the scene.
 layout(binding = 4, set = 0, scalar) buffer Materials { Material materials[]; };							// Contains all materials for the scene
 
+
 layout(push_constant, scalar) uniform PushConstants
 {
 	Camera camera;
