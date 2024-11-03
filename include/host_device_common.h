@@ -13,7 +13,7 @@ using vec3 = glm::vec3;
 #endif  // #ifdef __cplusplus
 
 
-// TODO: (Haclk) fix number of meshes a scene can contain.
+// TODO: (Hack) fix number of meshes a scene can contain.
 #define MAX_MESH_COUNT 64 
 #define SPHERE_CUSTOM_INDEX MAX_MESH_COUNT 
 #define MAX_TEXTURE_COUNT 500
@@ -47,7 +47,7 @@ struct AABB
 	vec3 max;
 };
 
-// Right-handed pinhole camera with (0,1,0) as up.
+// Right-handed pinhole camera with (0,1,0) as the world up vector.
 // Note a non-black background is equivalent to treating the background as a light source.
 struct Camera
 {

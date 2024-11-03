@@ -13,6 +13,7 @@ layout(binding = 1, set = 0) uniform accelerationStructureEXT tlas;
 layout(binding = 2, set = 0, scalar) buffer Vertices { Vertex vertices[]; } meshVertices[MAX_MESH_COUNT];	// Contains vertex buffers for meshes in the scene
 layout(binding = 3, set = 0, scalar) buffer Indices { uint indices[]; }		meshIndices[MAX_MESH_COUNT];	// Contains index buffers of meshes in the scene.
 layout(binding = 4, set = 0, scalar) buffer Materials { Material materials[]; };							// Contains all materials for the scene
+layout(binding = 5, set = 0) uniform sampler2D testTexture;
 
 
 layout(push_constant, scalar) uniform PushConstants
@@ -127,7 +128,7 @@ vec3 rayColor(vec3 origin, vec3 direction, inout uint rngState)
 			hitInfo.p	= rayQueryGetIntersectionObjectToWorldEXT(rayQuery, true) * vec4(objectPos, 1.0f);
 			hitInfo.gn	= normalize((objectGN * rayQueryGetIntersectionWorldToObjectEXT(rayQuery, true)).xyz);
 			hitInfo.sn  = normalize((objectSN * rayQueryGetIntersectionWorldToObjectEXT(rayQuery, true)).xyz);
-			//hitInfo.uv	= objectUV;
+			hitInfo.uv	= objectUV;
 			Material material		= materials[materialID];
 
 			hitInfo.materialType	= material.type;

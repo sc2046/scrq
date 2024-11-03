@@ -13,7 +13,7 @@ struct HitInfo
 	vec3 p;  // World-space hit position.
 	vec3 gn; // Geometric normal.
 	vec3 sn; // Interpolated shading normal (for triangles).
-	//vec2 uv; // < UV texture coordinates
+	vec2 uv; // < UV texture coordinates
 	
 	uint materialType;
 	vec3 albedo; //Replacement for uv coordinates until textures are added.

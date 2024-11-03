@@ -72,10 +72,11 @@ private:
 	// Texture
 	//-----------------------------------------------
 	Image		mTextureImage;
-	VkImageView mTextureImageView;
-	VkSampler	mTextureSampler;
 	uint32_t	mTextureByteSize;
 	VkExtent2D	mTextureExtents;
+
+	VkImageView mTextureImageView;
+	VkSampler	mTextureSampler;
 
 	// Acceleration structures
 	//-----------------------------------------------

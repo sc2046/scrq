@@ -205,7 +205,7 @@ inline Scene createCornellBoxScene()
     scene.mMeshes[5].loadFromFile("assets/xy_quad.obj");
     transform = glm::translate(glm::mat4(1.f), glm::vec3(0, 277, 0));
     transform = glm::rotate(transform, glm::radians(90.f), glm::vec3(1.f, 0.f, 0.f));
-    transform = glm::scale(transform, glm::vec3(130));
+    transform = glm::scale(transform, glm::vec3(250));
     scene.mMeshes[5].mTransform = transform;
     scene.mMeshes[5].mMaterialID = 3;
 

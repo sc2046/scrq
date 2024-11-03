@@ -268,36 +268,39 @@ void VulkanApp::uploadScene()
 
     // Upload Texture
     {
-        //stbi_load("")
-
-        // Load external image daat.
-        uint32_t magenta = glm::packUnorm4x8(glm::vec4(1, 0, 1, 1));
-        uint32_t black = glm::packUnorm4x8(glm::vec4(0, 0, 0, 0));
-        mTextureExtents.width = mTextureExtents.height = 16;
-        std::array<uint32_t, 16 * 16 > pixels; //for 16x16 checkerboard texture
-        for (int x = 0; x < 16; x++) {
-            for (int y = 0; y < 16; y++) {
-                pixels[y * 16 + x] = ((x % 2) ^ (y % 2)) ? magenta : black;
-            }
+        stbi_set_flip_vertically_on_load(true);
+        stbi_uc* pixels = stbi_load("assets/textures/statue.jpg", reinterpret_cast<int*>(&mTextureExtents.width), reinterpret_cast<int*>(&mTextureExtents.height), nullptr, STBI_rgb_alpha);
+        mTextureByteSize = mTextureExtents.width * mTextureExtents.height * 4;
+        if (!pixels) {
+            throw std::runtime_error("failed to load texture image!");
         }
-        mTextureByteSize = pixels.size() * 4;
+
+        // Copy pixel data to a staging buffer (apparently using a staging buffer is faster than a staging image)
+        Buffer imageStagingBuffer = createHostVisibleStagingBuffer(mVmaAllocator, mTextureByteSize);
+
+        void* data;
+        vmaMapMemory(mVmaAllocator, imageStagingBuffer.mAllocation, (void**)&data);
+        memcpy(data, pixels, mTextureByteSize);
+        vmaUnmapMemory(mVmaAllocator, imageStagingBuffer.mAllocation);
+
+        stbi_image_free(pixels);
 
         // Create an image to store texture data.
         // Make sure to store the data in device-local memory.
-        VkImageCreateInfo imageCreateInfo{
+        const VkImageCreateInfo imageCreateInfo{
             .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
             .imageType = VK_IMAGE_TYPE_2D,
-            .format = VK_FORMAT_R8G8B8A8_UNORM,
-            .extent = VkExtent3D{16, 16, 1} ,
+            .format = VK_FORMAT_R8G8B8A8_SRGB,
+            .extent = {mTextureExtents.width, mTextureExtents.height, 1} ,
             .mipLevels = 1,  
             .arrayLayers = 1,
             .samples = VK_SAMPLE_COUNT_1_BIT,
-            .tiling = VK_IMAGE_TILING_OPTIMAL,  // Use a gpu-friendly layout.
+            .tiling = VK_IMAGE_TILING_OPTIMAL,  // Use a gpu-friendly texel layout.
             .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
             .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
         };
-        VmaAllocationCreateInfo allocinfo = {
+        const VmaAllocationCreateInfo allocinfo = {
             .usage          = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
             .requiredFlags  = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
         };
@@ -307,10 +310,9 @@ void VulkanApp::uploadScene()
         // Create an image view for the image.
         VkImageViewCreateInfo info = {};
         info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        info.pNext = nullptr;
         info.viewType = VK_IMAGE_VIEW_TYPE_2D;
         info.image = mTextureImage.mImage;
-        info.format = VK_FORMAT_R8G8B8A8_UNORM;
+        info.format = VK_FORMAT_R8G8B8A8_SRGB;
         info.subresourceRange = { 
             .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
             .baseMipLevel = 0, .levelCount = 1,
@@ -319,16 +321,6 @@ void VulkanApp::uploadScene()
         VK_CHECK(vkCreateImageView(mDevice, &info, nullptr, &mTextureImageView));
         mDeletionQueue.push_function([&]() {vkDestroyImageView(mDevice, mTextureImageView, nullptr);});
 
-        // Copy pixel data to a staging buffer (apparently using a staging buffer is faster than a staging image)
-        Buffer imageStagingBuffer = createHostVisibleStagingBuffer(mVmaAllocator, mTextureByteSize);
-
-        //mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, imageStagingBuffer.mBuffer, imageStagingBuffer.mAllocation);});
-
-        void* data;
-        vmaMapMemory(mVmaAllocator, imageStagingBuffer.mAllocation, (void**)&data);
-        memcpy(data, imageStagingBuffer.mAllocation, mTextureByteSize);
-        vmaUnmapMemory(mVmaAllocator, imageStagingBuffer.mAllocation);
-
 
         // Transition the image layout into VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL for copying from staging buffer.
         // Then copy data from the staging buffer to the device.
@@ -336,7 +328,6 @@ void VulkanApp::uploadScene()
         VkCommandBuffer uploadCmdBuffer = AllocateAndBeginOneTimeCommandBuffer(mDevice, mCommandPool);
         {
 
-            // Image memory barrier for `imageRender` from UNDEFINED to GENERAL layout:
             VkImageMemoryBarrier imageBarrier = {};
             imageBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
             imageBarrier.srcAccessMask = 0;
@@ -359,6 +350,7 @@ void VulkanApp::uploadScene()
                 0, nullptr,
                 1, &imageBarrier);
 
+            // Copy data from staging buffer to image.
             VkBufferImageCopy region{};
             region.bufferOffset = 0;
             region.bufferRowLength = 0;
@@ -369,13 +361,56 @@ void VulkanApp::uploadScene()
             region.imageSubresource.layerCount = 1;
             region.imageOffset = { 0, 0, 0 };
             region.imageExtent = { mTextureExtents.width, mTextureExtents.height, 1 };
+
             vkCmdCopyBufferToImage(uploadCmdBuffer, imageStagingBuffer.mBuffer, mTextureImage.mImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+            VkImageMemoryBarrier imageBarrier2 = {};
+            imageBarrier2.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            imageBarrier2.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            imageBarrier2.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            imageBarrier2.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            imageBarrier2.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageBarrier2.image = mTextureImage.mImage;
+            imageBarrier2.subresourceRange = {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1 };
+
+            vkCmdPipelineBarrier(uploadCmdBuffer,
+                VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                0,
+                0, nullptr,
+                0, nullptr,
+                1, &imageBarrier2);
 
         }
         EndSubmitWaitAndFreeCommandBuffer(mDevice, mComputeQueue, mCommandPool, uploadCmdBuffer);
 
         vmaDestroyBuffer(mVmaAllocator, imageStagingBuffer.mBuffer, imageStagingBuffer.mAllocation);
     }
+
+    // Create sampler for the texture.
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter = VK_FILTER_NEAREST;
+    samplerInfo.minFilter = VK_FILTER_NEAREST;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    //samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    //TODO: Read about anisotropic filtering.
+    //samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+    //samplerInfo.unnormalizedCoordinates = VK_FALSE;
+    //samplerInfo.compareEnable = VK_FALSE;
+    //samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+    //samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    //samplerInfo.mipLodBias = 0.0f;
+    //samplerInfo.minLod = 0.0f;
+    //samplerInfo.maxLod = 0.0f;
+    VK_CHECK(vkCreateSampler(mDevice, &samplerInfo, nullptr, &mTextureSampler));
+    mDeletionQueue.push_function([&] {vkDestroySampler(mDevice, mTextureSampler, nullptr);});
 }
 
 // Creates a blas for an AABB centered at the origin, with a half-extents of 1.
@@ -869,6 +904,9 @@ void VulkanApp::initDescriptorSets()
     bindingInfo.emplace_back(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, MAX_MESH_COUNT, VK_SHADER_STAGE_COMPUTE_BIT);
     // Buffer for scene materials.
     bindingInfo.emplace_back(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+    // Sampler for scene textures.
+    bindingInfo.emplace_back(5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+
 
     const VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
@@ -879,15 +917,16 @@ void VulkanApp::initDescriptorSets()
     mDeletionQueue.push_function([&]() {vkDestroyDescriptorSetLayout(mDevice, mDescriptorSetLayout, nullptr);});
 
     // Create a descriptor pool for the resources we will need.
-    std::array<VkDescriptorPoolSize, 3> sizes;
-    sizes[0] = { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1 };
-    sizes[1] = { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1 + (2 * MAX_MESH_COUNT) };
-    sizes[2] = { VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1 };
+    std::vector<VkDescriptorPoolSize> sizes;
+    sizes.emplace_back(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1 );
+    sizes.emplace_back(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1 + (2 * MAX_MESH_COUNT) );
+    sizes.emplace_back(VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1 );
+    sizes.emplace_back(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1);
 
     const VkDescriptorPoolCreateInfo info{
     .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
     .maxSets = 1,
-    .poolSizeCount = 3,
+    .poolSizeCount = static_cast<uint32_t>(sizes.size()),
     .pPoolSizes = sizes.data()
     };
     VK_CHECK(vkCreateDescriptorPool(mDevice, &info, nullptr, &mDescriptorPool););
@@ -903,7 +942,7 @@ void VulkanApp::initDescriptorSets()
     VK_CHECK(vkAllocateDescriptorSets(mDevice, &descriptorSetAllocInfo, &mDescriptorSet););
 
     // Bind the descriptor set to the resources.
-    std::array<VkWriteDescriptorSet, 5> writeDescriptorSets;
+    std::array<VkWriteDescriptorSet, 6> writeDescriptorSets;
 
     const VkDescriptorImageInfo imageLinearDescriptor{ .imageView = mImageView, .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
     writeDescriptorSets[0] = {
@@ -930,7 +969,6 @@ void VulkanApp::initDescriptorSets()
         .descriptorCount = 1,
         .descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
     };
-
 
     // Create a descriptor array for mesh vertices/indices.
     std::vector<VkDescriptorBufferInfo> meshVertexBufferDescriptorArrayInfo;
@@ -970,6 +1008,16 @@ void VulkanApp::initDescriptorSets()
         .pBufferInfo = &materialBufferDescriptorInfo
     };
 
+    const VkDescriptorImageInfo imageInfo{ .sampler = mTextureSampler, .imageView = mTextureImageView, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    writeDescriptorSets[5] = {
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = mDescriptorSet,
+        .dstBinding = 5,
+        .dstArrayElement = 0,
+        .descriptorCount = 1,
+        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .pImageInfo = &imageInfo
+    };
 
     vkUpdateDescriptorSets(mDevice, static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
 }
@@ -1038,7 +1086,7 @@ void VulkanApp::render()
         {
             VkImageMemoryBarrier imageBarrier = {};
             imageBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-            imageBarrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;    // Shader reads/writes to this image must be made visible
+            imageBarrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;    // Shader reads/writes to this image must have completed and be available
             imageBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;                               // Before reading from it in a transfer operation.
             imageBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
             imageBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;

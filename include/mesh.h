@@ -48,10 +48,12 @@ struct ObjMesh
 				}
 				// Texture Coordinate
 				if (index.texcoord_index >= 0) { // Check if texture coordinate exists
+				  //vertex.tex.x = vertex.tex.y = 0.0f;
+
 					vertex.tex.x = attrib.texcoords[2 * index.texcoord_index + 0];
 					vertex.tex.y = attrib.texcoords[2 * index.texcoord_index + 1];
 				}
-				else {vertex.tex.x = vertex.tex.x = 0.0f;}
+				else {vertex.tex.x = vertex.tex.y = 0.0f;}
 
 				mVertices.push_back(std::move(vertex));
 				mIndices.push_back(static_cast<uint32_t>(mVertices.size() - 1));
