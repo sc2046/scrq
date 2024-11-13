@@ -25,7 +25,16 @@ public:
 		uint32_t mBatchID;
 	};
 	SamplingParameters	mSamplingParams;
-	uint32_t			mNumBatches{ 64 };
+	uint32_t			mNumBatches{ 4 };
+
+
+	struct SpecializationData
+	{
+		uint32_t integrator{ NORMAL };
+		//uint32_t sampler;
+	};
+	SpecializationData mSpecializationData;
+
 
 	void initContext(bool validation);
 	void initResources();

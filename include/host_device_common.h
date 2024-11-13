@@ -19,11 +19,20 @@ using vec3 = glm::vec3;
 #define SPHERE_CUSTOM_INDEX MAX_MESH_COUNT 
 #define MAX_TEXTURE_COUNT 500
 
+// Materials
 #define DIFFUSE		0
 #define MIRROR		1
 #define DIELECTRIC	2
 #define PHONG		3
 #define LIGHT		4
+
+// Integrators
+#define PATH		0
+#define NORMAL		1
+#define AO			2
+// Samplers
+
+
 
 
 // ==============================================================
@@ -64,10 +73,10 @@ struct Material
 {
 	uint	type;
 	vec3	albedo;
+	//uint    albdeoTextureID;
 	int		phongExponent;	// Only used if type == PHONG
 	vec3	emitted;	// Only used if type == LIGHT
 	//float	ior;		// Only used if type == DIELECTRIC
-	//uint    textureID;
 };
 
 #endif // #ifndef COMMON_H

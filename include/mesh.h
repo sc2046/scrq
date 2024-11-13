@@ -14,8 +14,8 @@ struct ObjMesh
 	glm::mat4				mTransform = glm::mat4(1.f);
 	uint32_t				mMaterialID;
 
-    AllocatedBuffer                  mVertexBuffer;
-	AllocatedBuffer                  mIndexBuffer;
+    AllocatedBuffer			mVertexBuffer;
+	AllocatedBuffer			mIndexBuffer;
 	
 	AccelerationStructure	mBlas;          // TODO: Should be a vector, one per primitive?
 

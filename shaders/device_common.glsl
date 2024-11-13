@@ -12,9 +12,9 @@ struct HitInfo
 	vec3 sn; // Interpolated shading normal (for triangles).
 	vec2 uv; // < UV texture coordinates
 
-	//Material material;
 	uint materialType;
 	vec3 albedo; 
+	// vec3 albedoTextureID;
 	vec3 emitted;
 	int	phongExponent;
 

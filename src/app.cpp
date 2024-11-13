@@ -185,7 +185,7 @@ void VulkanApp::initResources()
 // Uploads all scene geometry into GPU buffers;
 void VulkanApp::uploadScene()
 {
-    mScene = createBuddhaCornellBox();
+    mScene = createAjaxScene();
 
     //TODO: Create one large staging buffer for all scene data? 
     
@@ -1043,6 +1043,19 @@ void VulkanApp::initDescriptorSets()
 
 void VulkanApp::initComputePipeline()
 {
+
+    // Specify specialization constants.
+    std::array<VkSpecializationMapEntry, 1> specializationMapEntries;
+    specializationMapEntries[0].constantID = 0;
+    specializationMapEntries[0].size = sizeof(mSpecializationData.integrator);
+    specializationMapEntries[0].offset = 0;
+
+    VkSpecializationInfo specializationInfo;
+    specializationInfo.dataSize         = sizeof(SpecializationData);
+    specializationInfo.pData            = &mSpecializationData;
+    specializationInfo.mapEntryCount    = static_cast<uint32_t>(specializationMapEntries.size());
+    specializationInfo.pMapEntries      = specializationMapEntries.data();
+
     // Load shader module.
     mComputeShader = createShaderModule(mDevice, fs::path("shaders/book2/book2.spv"));
     const VkPipelineShaderStageCreateInfo pipelineShaderStageCreateInfo{
@@ -1050,8 +1063,12 @@ void VulkanApp::initComputePipeline()
         .stage = VK_SHADER_STAGE_COMPUTE_BIT,
         .module = mComputeShader,
         .pName = "main",
+        .pSpecializationInfo = &specializationInfo
     };
     mDeletionQueue.push_function([&]() {vkDestroyShaderModule(mDevice, mComputeShader, nullptr); });
+
+    // Specify specialization
+
 
     // Create a push constant range describing the amount of data for the push constants.
     static_assert(sizeof(Camera) % 4 == 0, "Push constant size must be a multiple of 4 per the Vulkan spec!");
@@ -1062,7 +1079,8 @@ void VulkanApp::initComputePipeline()
         .setLayoutCount = 1,
         .pSetLayouts    = &mDescriptorSetLayout,
         .pushConstantRangeCount = 1,
-        .pPushConstantRanges = &pushConstantRange
+        .pPushConstantRanges = &pushConstantRange,
+
     };
     VK_CHECK(vkCreatePipelineLayout(mDevice, &pipelineLayoutCreateInfo, VK_NULL_HANDLE, &mPipelineLayout));
     mDeletionQueue.push_function([&]() {vkDestroyPipelineLayout(mDevice, mPipelineLayout, nullptr);  });

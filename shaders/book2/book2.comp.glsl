@@ -10,6 +10,7 @@
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 layout(binding = 0, set = 0, rgba32f) uniform image2D storageImage;
+
 layout(binding = 1, set = 0) uniform accelerationStructureEXT tlas;
 layout(binding = 2, set = 0, scalar) buffer Vertices { Vertex vertices[]; } meshVertices[MAX_MESH_COUNT];	// Contains vertex buffers for meshes in the scene
 layout(binding = 3, set = 0, scalar) buffer Indices { uint indices[]; }		meshIndices[MAX_MESH_COUNT];	// Contains index buffers of meshes in the scene.
@@ -24,6 +25,9 @@ layout(push_constant, scalar) uniform PushConstants
 	uint numBounces;
 	uint batchID;
 };
+
+// Use a specialization constant to control which integrator to use. 
+layout(constant_id = 0) const int INTEGRATOR = PATH;
 
 vec3 normalLi(vec3 worldO, vec3 worldD, inout uint rngState)
 {
@@ -269,23 +273,38 @@ void main()
 	if ((pixel.x >= resolution.x) || (pixel.y >= resolution.y)) { return; }
 
 	// Use the linear index of the pixel as the initial seed for the RNG.
-	uint rngState =  resolution.x * (batchID * resolution.y + pixel.y)  + pixel.x;  // Initial seed
+	uint rngState =  resolution.x * (batchID * resolution.y + pixel.y)  + pixel.x;  
 
 	vec3 pixelColor = vec3(0.f);
 	for (int sampleID = 0; sampleID < numSamples; ++sampleID)
 	{
+		// Generate an initial ray from the camera.
 		vec3 origin;
 		vec3 direction;
 		generateRay(camera, vec2(pixel) + vec2(stepAndOutputRNGFloat(rngState), stepAndOutputRNGFloat(rngState)), resolution, origin, direction);
 		
-		pixelColor += pathBasicLi(origin, direction, rngState);
-		//pixelColor += normalLi(origin, direction, rngState);
-		//pixelColor += ambientOcclusionLi(origin, direction, rngState);
-
+		switch (INTEGRATOR)
+		{
+			case PATH:
+			{
+				pixelColor += pathBasicLi(origin, direction, rngState);
+				break;
+			}
+			case NORMAL:
+			{
+				pixelColor += normalLi(origin, direction, rngState);
+				break;
+			}
+			case AO:
+			{
+				pixelColor += ambientOcclusionLi(origin, direction, rngState);
+				break;
+			}
+		}
 	}
 
-	pixelColor /= numSamples;
 	// Update the color value for the texel.
+	pixelColor /= numSamples;
 	if (batchID!= 0)
 	{
 		const vec3 previousAverageColor = imageLoad(storageImage, ivec2(pixel)).rgb;

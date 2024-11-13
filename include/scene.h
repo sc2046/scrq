@@ -107,11 +107,10 @@ inline Scene createShirleyBook1Scene()
     return scene;
 }
 
-
 inline Scene createSponzaBuddhaScene()
 {
     Scene scene;
-    scene.mName = "Sponza_Buddha";
+    scene.mName = "Sponza";
 
     scene.mCamera = {
         .center = glm::vec3(-2, 0.5, -0.1),
@@ -122,19 +121,10 @@ inline Scene createSponzaBuddhaScene()
     };
 
     scene.mMaterials.emplace_back(Material{ .type = DIFFUSE,  .albedo = glm::vec3(0.5f), .emitted = glm::vec3(0.f) });
-    scene.mMaterials.emplace_back(Material{ .type = DIELECTRIC, . albedo = glm::vec3(0.12, 0.45, 0.15) });
 
-    scene.mMeshes.resize(2);
+    scene.mMeshes.resize(1);
     scene.mMeshes[0].loadFromFile("assets/sponza.obj");
     scene.mMeshes[0].mMaterialID = 0;
-
-    scene.mMeshes[1].loadFromFile("assets/backpack.obj");
-    scene.mMeshes[1].mTransform = glm::translate(glm::mat4(1.f), { -2.f,0.f,-3.f });
-    scene.mMeshes[1].mTransform = glm::scale(scene.mMeshes[1].mTransform, glm::vec3(0.5));
-
-    scene.mMeshes[1].mMaterialID = 1;
-
-    scene.mSpheres.emplace_back(glm::vec3(0.0, -5000, -1.0), 1000, 0);
 
     return scene;
 }
@@ -166,16 +156,13 @@ inline Scene createAjaxScene()
     scene.mMeshes[1].loadFromFile("assets/ajax.obj");
     scene.mMeshes[1].mMaterialID = 0;
 
-    scene.mSpheres.emplace_back(glm::vec3(0.0, -5000, -1.0), 1000, 0);
-
     return scene;
 }
-
 
 inline Scene createSphereCornellBoxScene()
 {
     Scene scene;
-    scene.mName = "Sphere_Cornell_Box";
+    scene.mName = "SphereCornellBox";
 
     scene.mCamera = {
         .center = glm::vec3(0, 20, 1077.5),
@@ -254,7 +241,7 @@ inline Scene createSphereCornellBoxScene()
 inline Scene createBuddhaCornellBox()
 {
     Scene scene;
-    scene.mName = "Buddha_Cornell";
+    scene.mName = "BuddhaCornellBox";
 
     scene.mCamera = {
         .center = glm::vec3(0, 20, 1077.5),
@@ -337,8 +324,6 @@ inline Scene createBuddhaCornellBox()
     scene.mMeshes[7].mTransform = transform;
     scene.mMeshes[7].mMaterialID = 4;
 
-    scene.mSpheres.emplace_back(glm::vec3(0, -5000, 0), 1.f, 4);
-
     return scene;
 }
 
@@ -394,65 +379,4 @@ inline Scene createVeachMatsScene()
     scene.mMeshes[4].mMaterialID = 8;
 
     return scene;
-}
-
-inline Scene createVeachOdysseyScene()
-{
-    Scene scene;
-    scene.mName = "Veach_Odyssey";
-
-    scene.mCamera = {
-        .center = glm::vec3(20, 20, 50),
-        .eye = glm::vec3(0, 4, 0),
-        .backgroundColor = glm::vec3(0.f),
-        .fovY = 20,
-        .focalDistance = 1.f
-    };
-
-    scene.mMaterials.emplace_back(Material{ .type = DIFFUSE, .albedo = glm::vec3(0.8) });
-    scene.mMaterials.emplace_back(Material{ .type = DIFFUSE, .albedo = glm::vec3(0.95) });
-    scene.mMaterials.emplace_back(Material{ .type = LIGHT, .emitted = glm::vec3(1) });
-
-
-
-
-    scene.mMeshes.resize(3);
-
-    scene.mMeshes[0].loadFromFile("assets/cube.obj");
-    auto transform = glm::translate(glm::mat4(1.f), glm::vec3(0, 0.5, 0));
-    transform = glm::scale(transform, glm::vec3(1, 9, 4));
-    scene.mMeshes[0].mTransform = transform;
-    scene.mMeshes[0].mMaterialID = 0;
-
-    scene.mMeshes[1].loadFromFile("assets/xy_quad.obj");
-    {
-        auto m = glm::mat4(1.f);
-        m[0] = glm::vec4(0.f);
-        m[1] = glm::vec4(0, 0, -1, 0);
-        m[2] = glm::vec4(0, 1, 0, 0);
-        m[3] = glm::vec4(0, 0, 0, 1);
-        auto s = glm::scale(glm::mat4(1.f), glm::vec3(24, 18, 1));
-        scene.mMeshes[1].mTransform = m * s;
-    }
-    scene.mMeshes[1].mMaterialID = 1;
-
-    scene.mMeshes[2].loadFromFile("assets/xy_quad.obj");
-    {
-        transform = glm::mat4(1.f);
-        auto t = glm::translate(glm::mat4(1.f), glm::vec3(0, 5, 0));
-        auto m = glm::mat4(1.f);
-        transform[0] = glm::vec4(0.f);
-        transform[1] = glm::vec4(0, 0, -1, 0);
-        transform[2] = glm::vec4(0, 1, 0, 0);
-        transform[3] = glm::vec4(0, 0, 0, 1);
-        auto s = glm::scale(glm::mat4(1.f), glm::vec3(24, 18, 1));
-        scene.mMeshes[2].mTransform = t * m * s;
-    }
-    scene.mMeshes[2].mMaterialID = 2;
-
-
-    scene.mSpheres.emplace_back(Sphere{ .center = glm::vec3(0.f,-5000.f,0.f),.radius = 1.f,.materialID = 0 });
-
-    return scene;
-
 }
