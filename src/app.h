@@ -17,11 +17,18 @@ public:
 	VkExtent2D mWindowExtents{ 800, 600 };
 	VkExtent2D mWorkGroupDim{ 16,16 };
 
-	uint32_t mNumSamples{ 200 };
-	uint32_t mNumBounces{ 32 };
+	
+	struct SamplingParameters
+	{
+		uint32_t mNumSamples{ 64 };
+		uint32_t mNumBounces{ 32 };
+		uint32_t mBatchID;
+	};
+	SamplingParameters	mSamplingParams;
+	uint32_t			mNumBatches{ 16 };
 
 	void initContext(bool validation);
-	void initAllocators();
+	void initResources();
 	void initImage();
 
 	void uploadScene();
@@ -36,6 +43,11 @@ public:
 	void render();
 	void writeImage(const fs::path& path);
 	void cleanup();
+
+
+	// Submit operations to the queue, and wait for them to complete.
+	void immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
+
 
 	// Scene Data
 	//-----------------------------------------------
@@ -52,10 +64,15 @@ private:
 	VkQueue						mComputeQueue;
 	uint32_t					mComputeQueueFamily;
 	VmaAllocator				mVmaAllocator;
+	//-----------------------------------------------
+
+	// Synchronisation resources
+	VkFence						mImmediateFence;
 
 	// Allocators.
 	//-----------------------------------------------
 	VkCommandPool				mCommandPool;
+	VkCommandBuffer				mImmediateCmdBuf;
 
 	// Descriptors
 	//-----------------------------------------------
@@ -81,10 +98,10 @@ private:
 	// Acceleration structures
 	//-----------------------------------------------
 	AccelerationStructure		mAabbBlas;
-	Buffer						mAabbGeometryBuffer;
+	AllocatedBuffer				mAabbGeometryBuffer;
 	
 	AccelerationStructure		mTlas;
-	Buffer						mTlasInstanceBuffer;  // Stores the per-instance data (matrices, materialID etc...) 
+	AllocatedBuffer				mTlasInstanceBuffer;  // Stores the per-instance data (matrices, materialID etc...) 
 
 	// Pipeline Data
 	//-----------------------------------------------

@@ -38,11 +38,11 @@ namespace fs = std::filesystem;
     } while (0)
 
 
-struct Buffer
+struct AllocatedBuffer
 {
-    VkBuffer		mBuffer;
-    VmaAllocation	mAllocation;
-    uint32_t		mByteSize;
+    VkBuffer		    mBuffer;
+    VmaAllocation	    mAllocation;
+    VmaAllocationInfo	mAllocInfo;
 };
 
 struct Image
@@ -53,6 +53,6 @@ struct Image
 
 struct AccelerationStructure
 {
-    VkAccelerationStructureKHR	mHandle;
-    Buffer						mData; // Stores the Acceleration structure data.
+    VkAccelerationStructureKHR	        mHandle;
+    AllocatedBuffer						mData; // Stores the Acceleration structure data.
 };

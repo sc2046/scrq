@@ -14,8 +14,8 @@ struct ObjMesh
 	glm::mat4				mTransform = glm::mat4(1.f);
 	uint32_t				mMaterialID;
 
-    Buffer                  mVertexBuffer;
-    Buffer                  mIndexBuffer;
+    AllocatedBuffer                  mVertexBuffer;
+	AllocatedBuffer                  mIndexBuffer;
 	
 	AccelerationStructure	mBlas;          // TODO: Should be a vector, one per primitive?
 
@@ -46,10 +46,9 @@ struct ObjMesh
 					vertex.normal.y = attrib.normals[3 * index.normal_index + 1];
 					vertex.normal.z = attrib.normals[3 * index.normal_index + 2];
 				}
+				else { vertex.normal.x = vertex.normal.y = vertex.normal.z = 0.f; }
 				// Texture Coordinate
 				if (index.texcoord_index >= 0) { // Check if texture coordinate exists
-				  //vertex.tex.x = vertex.tex.y = 0.0f;
-
 					vertex.tex.x = attrib.texcoords[2 * index.texcoord_index + 0];
 					vertex.tex.y = attrib.texcoords[2 * index.texcoord_index + 1];
 				}

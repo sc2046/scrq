@@ -14,40 +14,11 @@ inline VkDeviceAddress getBlasDeviceAddress(VkDevice device, VkAccelerationStruc
     return vkGetAccelerationStructureDeviceAddressKHR(device, &addressInfo);
 }
 
-// Allocates a one-time-submit command buffer from a command pool.
-// Immediately begins recording.
-// Returns the command buffer.
-inline VkCommandBuffer AllocateAndBeginOneTimeCommandBuffer(VkDevice device, VkCommandPool cmdPool)
-{
-    VkCommandBufferAllocateInfo cmdAllocInfo{ .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-                                             .commandPool = cmdPool,
-                                             .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-                                             .commandBufferCount = 1 };
-    VkCommandBuffer             cmdBuffer;
-    VK_CHECK(vkAllocateCommandBuffers(device, &cmdAllocInfo, &cmdBuffer));
-    VkCommandBufferBeginInfo beginInfo{ .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-                                       .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT };
-    VK_CHECK(vkBeginCommandBuffer(cmdBuffer, &beginInfo));
-    return cmdBuffer;
-}
-
-// Ends recording of a command buffer
-// Submits the work to the appropriate queue for execution.
-// Waits until the queue has no more work to do
-// Destroys the command buffer.
-inline void EndSubmitWaitAndFreeCommandBuffer(VkDevice device, VkQueue queue, VkCommandPool cmdPool, VkCommandBuffer& cmdBuffer)
-{
-    VK_CHECK(vkEndCommandBuffer(cmdBuffer));
-    VkSubmitInfo submitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cmdBuffer };
-    VK_CHECK(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
-    VK_CHECK(vkQueueWaitIdle(queue));
-    vkFreeCommandBuffers(device, cmdPool, 1, &cmdBuffer);
-}
 
 // TODO: Add additional usage, flags?
-inline Buffer createHostVisibleStagingBuffer(VmaAllocator allocator, uint32_t size_bytes)
+inline AllocatedBuffer createHostVisibleStagingBuffer(VmaAllocator allocator, uint32_t size_bytes)
 {
-    Buffer buf;
+    AllocatedBuffer buf;
     VkBufferCreateInfo createInfo{
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         .size = size_bytes,
@@ -59,7 +30,7 @@ inline Buffer createHostVisibleStagingBuffer(VmaAllocator allocator, uint32_t si
             .usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
             .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     };
-    VK_CHECK(vmaCreateBuffer(allocator, &createInfo, &allocCreateInfo, &buf.mBuffer, &buf.mAllocation, nullptr));
+    VK_CHECK(vmaCreateBuffer(allocator, &createInfo, &allocCreateInfo, &buf.mBuffer, &buf.mAllocation, &buf.mAllocInfo));
     return buf;
 }
 

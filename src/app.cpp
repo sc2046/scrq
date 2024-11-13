@@ -18,12 +18,40 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
+// Submit operations to the queue, and wait for them to complete.
+void VulkanApp::immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function)
+{
+    VK_CHECK(vkResetFences(mDevice, 1, &mImmediateFence));
+    VK_CHECK(vkResetCommandBuffer(mImmediateCmdBuf, 0));
+
+    // Begin recording.
+    VkCommandBufferBeginInfo cmdBeginInfo = { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    cmdBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    VK_CHECK(vkBeginCommandBuffer(mImmediateCmdBuf, &cmdBeginInfo));
+
+    function(mImmediateCmdBuf);
+
+    VK_CHECK(vkEndCommandBuffer(mImmediateCmdBuf));
+
+    VkCommandBufferSubmitInfo cmdinfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+    cmdinfo.commandBuffer = mImmediateCmdBuf;
+    cmdinfo.deviceMask = 0;
+
+    VkSubmitInfo2 submit = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+    submit.commandBufferInfoCount = 1;
+    submit.pCommandBufferInfos = &cmdinfo;
+
+    // Submit command buffer to the queue and wait on the associated fence.
+    VK_CHECK(vkQueueSubmit2(mComputeQueue, 1, &submit, mImmediateFence));
+    VK_CHECK(vkWaitForFences(mDevice, 1, &mImmediateFence, true, 9999999999));
+}
+
 void VulkanApp::initContext(bool validation)
 {
     // Create instance
     vkb::InstanceBuilder builder;
 
-    const auto inst_ret = builder.set_app_name("Vulkan Compute Ray Tracer")
+    const auto inst_ret = builder.set_app_name("Vulkan Compute Path Tracer")
         .request_validation_layers(validation)
         .use_default_debug_messenger()
         .require_api_version(1, 3, 0)
@@ -52,6 +80,7 @@ void VulkanApp::initContext(bool validation)
 
     // features from Vulkan 1.3.
     VkPhysicalDeviceVulkan13Features features13{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+    features13.synchronization2 = true;
 
     // Require these features for the extensions this app uses.
     VkPhysicalDeviceAccelerationStructureFeaturesKHR    asFeatures{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
@@ -126,67 +155,47 @@ void VulkanApp::initContext(bool validation)
 
 }
 
-void VulkanApp::initAllocators()
+// Initialise all global vulkan resources needed for the program.
+void VulkanApp::initResources()
 {
-    // Create a single-use command pool.
-    // Command buffers allocated from this pool will not be re-used.
-    VkCommandPoolCreateInfo commanddPoolCreateInfo{
-    .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-    .flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT, // Most command buffers allocated will be short-lived, single-use
-    .queueFamilyIndex = mComputeQueueFamily,
-    };
-    VK_CHECK(vkCreateCommandPool(mDevice, &commanddPoolCreateInfo, nullptr, &mCommandPool));
+    // Create a fence used for immediate submits.
+    VkFenceCreateInfo fenceInfo = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+    VK_CHECK(vkCreateFence(mDevice, &fenceInfo, nullptr, &mImmediateFence));
+    mDeletionQueue.push_function([&](){vkDestroyFence(mDevice, mImmediateFence, nullptr);});
+
+    // Create a global use command pool.
+    // We will allocate one command buffer from this pool and re-use it.
+    VkCommandPoolCreateInfo commandPoolCreateInfo   = { .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+    commandPoolCreateInfo.flags                     = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;     
+    commandPoolCreateInfo.queueFamilyIndex          = mComputeQueueFamily;
+    VK_CHECK(vkCreateCommandPool(mDevice, &commandPoolCreateInfo, nullptr, &mCommandPool));
     mDeletionQueue.push_function([&]() { vkDestroyCommandPool(mDevice, mCommandPool, nullptr);});
+
+    // Allocate a single command buffer that will be used for immediate submit commands.
+    VkCommandBufferAllocateInfo cmdInfo = { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+    cmdInfo.commandBufferCount          = 1;
+    cmdInfo.commandPool                 = mCommandPool;
+    cmdInfo.level                       = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    VK_CHECK(vkAllocateCommandBuffers(mDevice, &cmdInfo, &mImmediateCmdBuf));
+
 }
 
 // Uploads all scene geometry into GPU buffers;
 void VulkanApp::uploadScene()
 {
-    mScene = createCornellBoxScene();
+    mScene = createSphereCornellBoxScene();
 
     //TODO: Use same staging buffer for all meshes (set size equal to largest of meshes).
     // Upload triangle mesh data
-    for(auto& mesh : mScene.mMeshes)
+    for(auto&& mesh : mScene.mMeshes)
     { 
-        // Create CPU staging buffers for the mesh data.
-        Buffer vertexStagingBuffer;
-        vertexStagingBuffer.mByteSize = mesh.mVertices.size() * sizeof(Vertex);
-        Buffer indexStagingBuffer;
-        indexStagingBuffer.mByteSize = mesh.mIndices.size() * sizeof(uint32_t);
-
-        VkBufferCreateInfo stagingbufferCreateInfo{
-                .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-                .size = vertexStagingBuffer.mByteSize,
-                .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                .sharingMode = VK_SHARING_MODE_EXCLUSIVE
-        };
-        const VmaAllocationCreateInfo stagingBufferAllocInfo{
-                .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT,
-                .usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
-                .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-        };
-        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &stagingbufferCreateInfo, &stagingBufferAllocInfo, &vertexStagingBuffer.mBuffer, &vertexStagingBuffer.mAllocation, nullptr));
-
-        stagingbufferCreateInfo.size = indexStagingBuffer.mByteSize;
-        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &stagingbufferCreateInfo, &stagingBufferAllocInfo, &indexStagingBuffer.mBuffer, &indexStagingBuffer.mAllocation, nullptr));
-
-
-        void* vdata;
-        vmaMapMemory(mVmaAllocator, vertexStagingBuffer.mAllocation, (void**)&vdata);
-        memcpy(vdata, mesh.mVertices.data(), mesh.mVertices.size() * sizeof(Vertex));
-        vmaUnmapMemory(mVmaAllocator, vertexStagingBuffer.mAllocation);
-
-        void* idata;
-        vmaMapMemory(mVmaAllocator, indexStagingBuffer.mAllocation, (void**)&idata);
-        memcpy(idata, mesh.mIndices.data(), mesh.mIndices.size() * sizeof(uint32_t));
-        vmaUnmapMemory(mVmaAllocator, indexStagingBuffer.mAllocation);
+        const size_t vertexBufferSize = mesh.mVertices.size() * sizeof(Vertex);
+        const size_t indexBufferSize = mesh.mIndices.size() * sizeof(uint32_t);
 
         // Create GPU buffers for the vertices and indices.
-        mesh.mVertexBuffer.mByteSize = vertexStagingBuffer.mByteSize;
-        mesh.mIndexBuffer.mByteSize = indexStagingBuffer.mByteSize;
         VkBufferCreateInfo deviceBufferCreateInfo{
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .size = mesh.mVertexBuffer.mByteSize,
+            .size = vertexBufferSize,
             .usage =
                 VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                 VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
@@ -195,40 +204,19 @@ void VulkanApp::uploadScene()
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE
         };
         const VmaAllocationCreateInfo deviceBufferAllocInfo{ .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, };
-        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &deviceBufferCreateInfo, &deviceBufferAllocInfo, &mesh.mVertexBuffer.mBuffer, &mesh.mVertexBuffer.mAllocation, nullptr));
+        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &deviceBufferCreateInfo, &deviceBufferAllocInfo, &mesh.mVertexBuffer.mBuffer, &mesh.mVertexBuffer.mAllocation, &mesh.mVertexBuffer.mAllocInfo));
         mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, mesh.mVertexBuffer.mBuffer, mesh.mVertexBuffer.mAllocation);});
 
-        deviceBufferCreateInfo.size = mesh.mIndexBuffer.mByteSize;
-        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &deviceBufferCreateInfo, &deviceBufferAllocInfo, &mesh.mIndexBuffer.mBuffer, &mesh.mIndexBuffer.mAllocation, nullptr));
+        deviceBufferCreateInfo.size = indexBufferSize;
+        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &deviceBufferCreateInfo, &deviceBufferAllocInfo, &mesh.mIndexBuffer.mBuffer, &mesh.mIndexBuffer.mAllocation, &mesh.mIndexBuffer.mAllocInfo));
         mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, mesh.mIndexBuffer.mBuffer, mesh.mIndexBuffer.mAllocation);});
 
 
-        VkCommandBuffer cmdBuf = AllocateAndBeginOneTimeCommandBuffer(mDevice, mCommandPool);
-        {
-            VkBufferCopy copy;
-            copy.dstOffset = 0;
-            copy.srcOffset = 0;
-            copy.size = mesh.mVertexBuffer.mByteSize;
-            vkCmdCopyBuffer(cmdBuf, vertexStagingBuffer.mBuffer, mesh.mVertexBuffer.mBuffer, 1, &copy);
-            copy.size = mesh.mIndexBuffer.mByteSize;
-            vkCmdCopyBuffer(cmdBuf, indexStagingBuffer.mBuffer, mesh.mIndexBuffer.mBuffer, 1, &copy);
-        }
-        EndSubmitWaitAndFreeCommandBuffer(mDevice, mComputeQueue, mCommandPool, cmdBuf);
-
-        // Staging buffers are no longer needed.
-        vmaDestroyBuffer(mVmaAllocator, vertexStagingBuffer.mBuffer, vertexStagingBuffer.mAllocation);
-        vmaDestroyBuffer(mVmaAllocator, indexStagingBuffer.mBuffer, indexStagingBuffer.mAllocation);
-
-    }
-
-    // Upload materials.
-    {
-        Buffer materialsStagingBuffer;
-        materialsStagingBuffer.mByteSize = mScene.mMaterials.size() * sizeof(Material);
-
+        // Create CPU staging buffers for the mesh data.
+        AllocatedBuffer meshStagingBuffer;
         const VkBufferCreateInfo stagingbufferCreateInfo{
                 .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-                .size = materialsStagingBuffer.mByteSize,
+                .size = vertexBufferSize + indexBufferSize,
                 .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                 .sharingMode = VK_SHARING_MODE_EXCLUSIVE
         };
@@ -237,36 +225,76 @@ void VulkanApp::uploadScene()
                 .usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
                 .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
         };
-        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &stagingbufferCreateInfo, &stagingBufferAllocInfo, &materialsStagingBuffer.mBuffer, &materialsStagingBuffer.mAllocation, nullptr));
+        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &stagingbufferCreateInfo, &stagingBufferAllocInfo, &meshStagingBuffer.mBuffer, &meshStagingBuffer.mAllocation, &meshStagingBuffer.mAllocInfo));
+
+        void* data;
+        vmaMapMemory(mVmaAllocator, meshStagingBuffer.mAllocation, (void**)&data);
+        memcpy(data, mesh.mVertices.data(), vertexBufferSize);
+        memcpy((char*)data + vertexBufferSize, mesh.mIndices.data(), indexBufferSize);
+        vmaUnmapMemory(mVmaAllocator, meshStagingBuffer.mAllocation); 
+
+        immediateSubmit([&](VkCommandBuffer cmd) {
+            VkBufferCopy vertexCopy;
+            vertexCopy.dstOffset = 0;
+            vertexCopy.srcOffset = 0;
+            vertexCopy.size      = vertexBufferSize;
+            vkCmdCopyBuffer(cmd, meshStagingBuffer.mBuffer, mesh.mVertexBuffer.mBuffer, 1, &vertexCopy);
+
+            VkBufferCopy indexCopy;
+            indexCopy.dstOffset = 0;
+            indexCopy.srcOffset = vertexBufferSize;
+            indexCopy.size = indexBufferSize;
+            vkCmdCopyBuffer(cmd, meshStagingBuffer.mBuffer, mesh.mIndexBuffer.mBuffer, 1, &indexCopy);
+            }); 
+
+        // Staging buffer no longer needed.
+        vmaDestroyBuffer(mVmaAllocator, meshStagingBuffer.mBuffer, meshStagingBuffer.mAllocation);
+
+    }
+
+    // Upload materials.
+    {
+        AllocatedBuffer materialsStagingBuffer;
+        const auto materialsBufferSize = mScene.mMaterials.size() * sizeof(Material);
+
+        const VkBufferCreateInfo stagingbufferCreateInfo{
+                .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                .size = materialsBufferSize,
+                .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+        };
+        const VmaAllocationCreateInfo stagingBufferAllocInfo{
+                .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT,
+                .usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+                .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        };
+        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &stagingbufferCreateInfo, &stagingBufferAllocInfo, &materialsStagingBuffer.mBuffer, &materialsStagingBuffer.mAllocation, &materialsStagingBuffer.mAllocInfo));
 
         void* sdata;
         vmaMapMemory(mVmaAllocator, materialsStagingBuffer.mAllocation, (void**)&sdata);
         memcpy(sdata, mScene.mMaterials.data(), mScene.mMaterials.size() * sizeof(Material));
         vmaUnmapMemory(mVmaAllocator, materialsStagingBuffer.mAllocation);
 
-        // Create GPU buffer for the spheres.
-        mScene.mMaterialsBuffer.mByteSize = materialsStagingBuffer.mByteSize;
+        // Create GPU buffer for the materials.
         const VkBufferCreateInfo deviceBufferCreateInfo{
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .size = mScene.mMaterialsBuffer.mByteSize,
-            .usage =
-                VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            .size = materialsBufferSize,
+            .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE
         };
         const VmaAllocationCreateInfo deviceBufferAllocInfo{ .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, };
-        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &deviceBufferCreateInfo, &deviceBufferAllocInfo, &mScene.mMaterialsBuffer.mBuffer, &mScene.mMaterialsBuffer.mAllocation, nullptr));
+        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &deviceBufferCreateInfo, &deviceBufferAllocInfo, &mScene.mMaterialsBuffer.mBuffer, &mScene.mMaterialsBuffer.mAllocation, &mScene.mMaterialsBuffer.mAllocInfo));
         mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, mScene.mMaterialsBuffer.mBuffer, mScene.mMaterialsBuffer.mAllocation);});
 
-        VkCommandBuffer cmdBuf = AllocateAndBeginOneTimeCommandBuffer(mDevice, mCommandPool);
-        {
-            const VkBufferCopy copy{ .srcOffset = 0, .dstOffset = 0, .size = mScene.mMaterialsBuffer.mByteSize };
-            vkCmdCopyBuffer(cmdBuf, materialsStagingBuffer.mBuffer, mScene.mMaterialsBuffer.mBuffer, 1, &copy);
-        }
-        EndSubmitWaitAndFreeCommandBuffer(mDevice, mComputeQueue, mCommandPool, cmdBuf);
+        immediateSubmit([&](VkCommandBuffer cmd) {
+            const VkBufferCopy copy{ .srcOffset = 0, .dstOffset = 0, .size = materialsBufferSize };
+            vkCmdCopyBuffer(cmd, materialsStagingBuffer.mBuffer, mScene.mMaterialsBuffer.mBuffer, 1, &copy);
+            });
+
         vmaDestroyBuffer(mVmaAllocator, materialsStagingBuffer.mBuffer, materialsStagingBuffer.mAllocation);
     }
 
-    // Upload Texture
+    // Upload Textures 
     {
         stbi_set_flip_vertically_on_load(true);
         stbi_uc* pixels = stbi_load("assets/textures/statue.jpg", reinterpret_cast<int*>(&mTextureExtents.width), reinterpret_cast<int*>(&mTextureExtents.height), nullptr, STBI_rgb_alpha);
@@ -276,7 +304,7 @@ void VulkanApp::uploadScene()
         }
 
         // Copy pixel data to a staging buffer (apparently using a staging buffer is faster than a staging image)
-        Buffer imageStagingBuffer = createHostVisibleStagingBuffer(mVmaAllocator, mTextureByteSize);
+        AllocatedBuffer imageStagingBuffer = createHostVisibleStagingBuffer(mVmaAllocator, mTextureByteSize);
 
         void* data;
         vmaMapMemory(mVmaAllocator, imageStagingBuffer.mAllocation, (void**)&data);
@@ -325,9 +353,7 @@ void VulkanApp::uploadScene()
         // Transition the image layout into VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL for copying from staging buffer.
         // Then copy data from the staging buffer to the device.
         // Then transition the image layout into VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL for sampling from shader.
-        VkCommandBuffer uploadCmdBuffer = AllocateAndBeginOneTimeCommandBuffer(mDevice, mCommandPool);
-        {
-
+        immediateSubmit([&](VkCommandBuffer cmd) {
             VkImageMemoryBarrier imageBarrier = {};
             imageBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
             imageBarrier.srcAccessMask = 0;
@@ -342,9 +368,9 @@ void VulkanApp::uploadScene()
                 .baseArrayLayer = 0,
                 .layerCount = 1 };
 
-            vkCmdPipelineBarrier(uploadCmdBuffer,
+            vkCmdPipelineBarrier(cmd,
                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                VK_PIPELINE_STAGE_TRANSFER_BIT, 
+                VK_PIPELINE_STAGE_TRANSFER_BIT,
                 0,
                 0, nullptr,
                 0, nullptr,
@@ -362,7 +388,7 @@ void VulkanApp::uploadScene()
             region.imageOffset = { 0, 0, 0 };
             region.imageExtent = { mTextureExtents.width, mTextureExtents.height, 1 };
 
-            vkCmdCopyBufferToImage(uploadCmdBuffer, imageStagingBuffer.mBuffer, mTextureImage.mImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+            vkCmdCopyBufferToImage(cmd, imageStagingBuffer.mBuffer, mTextureImage.mImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
             VkImageMemoryBarrier imageBarrier2 = {};
             imageBarrier2.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -378,27 +404,25 @@ void VulkanApp::uploadScene()
                 .baseArrayLayer = 0,
                 .layerCount = 1 };
 
-            vkCmdPipelineBarrier(uploadCmdBuffer,
+            vkCmdPipelineBarrier(cmd,
                 VK_PIPELINE_STAGE_TRANSFER_BIT,
                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                 0,
                 0, nullptr,
                 0, nullptr,
                 1, &imageBarrier2);
-
-        }
-        EndSubmitWaitAndFreeCommandBuffer(mDevice, mComputeQueue, mCommandPool, uploadCmdBuffer);
+            });
 
         vmaDestroyBuffer(mVmaAllocator, imageStagingBuffer.mBuffer, imageStagingBuffer.mAllocation);
     }
 
     // Create sampler for the texture.
     VkSamplerCreateInfo samplerInfo{};
-    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    samplerInfo.magFilter = VK_FILTER_NEAREST;
-    samplerInfo.minFilter = VK_FILTER_NEAREST;
-    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.sType           = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter       = VK_FILTER_NEAREST;
+    samplerInfo.minFilter       = VK_FILTER_NEAREST;
+    samplerInfo.addressModeU    = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeV    = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     //samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     //TODO: Read about anisotropic filtering.
     //samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
@@ -423,12 +447,12 @@ void VulkanApp::initAabbBlas()
             .max = glm::vec3(1.f),
         };
 
-        Buffer stagingBuffer;
-        stagingBuffer.mByteSize = sizeof(AABB);
+        AllocatedBuffer stagingBuffer;
+        const auto aabbBufferSize = sizeof(AABB);
 
         VkBufferCreateInfo stagingbufferCreateInfo{
                 .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-                .size = stagingBuffer.mByteSize,
+                .size = aabbBufferSize,
                 .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                 .sharingMode = VK_SHARING_MODE_EXCLUSIVE
         };
@@ -437,7 +461,7 @@ void VulkanApp::initAabbBlas()
                 .usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
                 .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
         };
-        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &stagingbufferCreateInfo, &stagingBufferAllocInfo, &stagingBuffer.mBuffer, &stagingBuffer.mAllocation, nullptr));
+        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &stagingbufferCreateInfo, &stagingBufferAllocInfo, &stagingBuffer.mBuffer, &stagingBuffer.mAllocation, &stagingBuffer.mAllocInfo));
 
         void* sdata;
         vmaMapMemory(mVmaAllocator, stagingBuffer.mAllocation, (void**)&sdata);
@@ -445,10 +469,9 @@ void VulkanApp::initAabbBlas()
         vmaUnmapMemory(mVmaAllocator, stagingBuffer.mAllocation);
 
         // Create GPU buffer for the AABB.
-        mAabbGeometryBuffer.mByteSize = stagingBuffer.mByteSize;
         VkBufferCreateInfo deviceBufferCreateInfo{
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .size = mAabbGeometryBuffer.mByteSize,
+            .size = aabbBufferSize,
             .usage =
                 VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                 VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
@@ -457,16 +480,15 @@ void VulkanApp::initAabbBlas()
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE
         };
         const VmaAllocationCreateInfo deviceBufferAllocInfo{ .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, };
-        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &deviceBufferCreateInfo, &deviceBufferAllocInfo, &mAabbGeometryBuffer.mBuffer, &mAabbGeometryBuffer.mAllocation, nullptr));
+        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &deviceBufferCreateInfo, &deviceBufferAllocInfo, &mAabbGeometryBuffer.mBuffer, &mAabbGeometryBuffer.mAllocation, &mAabbGeometryBuffer.mAllocInfo));
         mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, mAabbGeometryBuffer.mBuffer, mAabbGeometryBuffer.mAllocation);});
 
+        immediateSubmit([&](VkCommandBuffer cmd) {
+            const VkBufferCopy copy{ .srcOffset = 0, .dstOffset = 0, .size = aabbBufferSize };
+            vkCmdCopyBuffer(cmd, stagingBuffer.mBuffer, mAabbGeometryBuffer.mBuffer, 1, &copy);
+            });
 
-        VkCommandBuffer cmdBuf = AllocateAndBeginOneTimeCommandBuffer(mDevice, mCommandPool);
-        {
-            const VkBufferCopy copy{ .srcOffset = 0, .dstOffset = 0, .size = mAabbGeometryBuffer.mByteSize };
-            vkCmdCopyBuffer(cmdBuf, stagingBuffer.mBuffer, mAabbGeometryBuffer.mBuffer, 1, &copy);
-        }
-        EndSubmitWaitAndFreeCommandBuffer(mDevice, mComputeQueue, mCommandPool, cmdBuf);
+
         vmaDestroyBuffer(mVmaAllocator, stagingBuffer.mBuffer, stagingBuffer.mAllocation);
     }
 
@@ -523,7 +545,7 @@ void VulkanApp::initAabbBlas()
 
 
     // Allocate a GPU scratch buffer holding the temporary data of the acceleration structure builder.
-    Buffer  scratchBuffer;
+    AllocatedBuffer  scratchBuffer;
     {
         const VkBufferCreateInfo scratchBufCreateInfo{
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -532,20 +554,18 @@ void VulkanApp::initAabbBlas()
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE
         };
         const VmaAllocationCreateInfo scratchBufAllocCreateInfo{ .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE };
-        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &scratchBufCreateInfo, &scratchBufAllocCreateInfo, &scratchBuffer.mBuffer, &scratchBuffer.mAllocation, nullptr));
+        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &scratchBufCreateInfo, &scratchBufAllocCreateInfo, &scratchBuffer.mBuffer, &scratchBuffer.mAllocation, &scratchBuffer.mAllocInfo));
     }
 
     // Build the blas in a command buffer.
-    VkCommandBuffer cmdBuf = AllocateAndBeginOneTimeCommandBuffer(mDevice, mCommandPool);
-    {
+    immediateSubmit([&](VkCommandBuffer cmd) {
         // We can fill the rest of the buildGeometry struct.
         buildGeometryInfo.dstAccelerationStructure = mAabbBlas.mHandle;
         buildGeometryInfo.scratchData.deviceAddress = GetBufferDeviceAddress(mDevice, scratchBuffer.mBuffer);
         const VkAccelerationStructureBuildRangeInfoKHR buildRangeInfo{ kAabbCount, 0, 0, 0 };
         const VkAccelerationStructureBuildRangeInfoKHR* pRangeInfos = &buildRangeInfo;
-        vkCmdBuildAccelerationStructuresKHR(cmdBuf, 1, &buildGeometryInfo, &pRangeInfos);
-    }
-    EndSubmitWaitAndFreeCommandBuffer(mDevice, mComputeQueue, mCommandPool, cmdBuf);
+        vkCmdBuildAccelerationStructuresKHR(cmd, 1, &buildGeometryInfo, &pRangeInfos);
+        });
 
     // We no longer need the scratch buffer.
     vmaDestroyBuffer(mVmaAllocator, scratchBuffer.mBuffer, scratchBuffer.mAllocation);
@@ -613,7 +633,7 @@ void VulkanApp::initMeshBlas(ObjMesh& mesh)
 
 
     // Allocate a GPU scratch buffer holding the temporary data of the acceleration structure builder.
-    Buffer  scratchBuffer;
+    AllocatedBuffer  scratchBuffer;
     {
         const VkBufferCreateInfo scratchBufCreateInfo{
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -622,20 +642,19 @@ void VulkanApp::initMeshBlas(ObjMesh& mesh)
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE
         };
         const VmaAllocationCreateInfo scratchBufAllocCreateInfo{ .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE };
-        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &scratchBufCreateInfo, &scratchBufAllocCreateInfo, &scratchBuffer.mBuffer, &scratchBuffer.mAllocation, nullptr));
+        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &scratchBufCreateInfo, &scratchBufAllocCreateInfo, &scratchBuffer.mBuffer, &scratchBuffer.mAllocation, &scratchBuffer.mAllocInfo));
     }
 
     // Build the blas in a command buffer.
-    VkCommandBuffer cmdBuf = AllocateAndBeginOneTimeCommandBuffer(mDevice, mCommandPool);
-    {
+    immediateSubmit([&](VkCommandBuffer cmd) {
         // We can fill the rest of the buildGeometry struct.
         buildGeometryInfo.dstAccelerationStructure = mesh.mBlas.mHandle;
         buildGeometryInfo.scratchData.deviceAddress = GetBufferDeviceAddress(mDevice, scratchBuffer.mBuffer);
         const VkAccelerationStructureBuildRangeInfoKHR buildRangeInfo{ meshPrimitiveCount, 0, 0, 0 };
         const VkAccelerationStructureBuildRangeInfoKHR* pRangeInfos = &buildRangeInfo;
-        vkCmdBuildAccelerationStructuresKHR(cmdBuf, 1, &buildGeometryInfo, &pRangeInfos);
-    }
-    EndSubmitWaitAndFreeCommandBuffer(mDevice, mComputeQueue, mCommandPool, cmdBuf);
+        vkCmdBuildAccelerationStructuresKHR(cmd, 1, &buildGeometryInfo, &pRangeInfos);
+        });
+
 
     // We no longer need the scratch buffer.
     vmaDestroyBuffer(mVmaAllocator, scratchBuffer.mBuffer, scratchBuffer.mAllocation);
@@ -753,7 +772,7 @@ void VulkanApp::initSceneTLAS()
     }
 
     // Create scratch buffer for the tlas.
-    Buffer   scratchBuffer;
+    AllocatedBuffer   scratchBuffer;
     const VkBufferCreateInfo scratchBufCreateInfo{
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         .size = buildSizesInfo.buildScratchSize ,
@@ -761,21 +780,19 @@ void VulkanApp::initSceneTLAS()
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE
     };
     const VmaAllocationCreateInfo scratchBufAllocCreateInfo{ .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE };
-    VK_CHECK(vmaCreateBuffer(mVmaAllocator, &scratchBufCreateInfo, &scratchBufAllocCreateInfo, &scratchBuffer.mBuffer, &scratchBuffer.mAllocation, nullptr));
+    VK_CHECK(vmaCreateBuffer(mVmaAllocator, &scratchBufCreateInfo, &scratchBufAllocCreateInfo, &scratchBuffer.mBuffer, &scratchBuffer.mAllocation, &scratchBuffer.mAllocInfo));
     const auto scratchAddress = GetBufferDeviceAddress(mDevice, scratchBuffer.mBuffer);
 
     // Build the TLAS.
-    VkCommandBuffer cmdBuf = AllocateAndBeginOneTimeCommandBuffer(mDevice, mCommandPool);
-    {
+    immediateSubmit([&](VkCommandBuffer cmd) {
         // Update build info
         buildGeometryInfo.dstAccelerationStructure = mTlas.mHandle;
         buildGeometryInfo.scratchData.deviceAddress = scratchAddress;
 
         const VkAccelerationStructureBuildRangeInfoKHR buildOffsetInfo{ kInstanceCount, 0, 0, 0 };
         const VkAccelerationStructureBuildRangeInfoKHR* pBuildOffsetInfo = &buildOffsetInfo;
-        vkCmdBuildAccelerationStructuresKHR(cmdBuf, 1, &buildGeometryInfo, &pBuildOffsetInfo);
-    }
-    EndSubmitWaitAndFreeCommandBuffer(mDevice, mComputeQueue, mCommandPool, cmdBuf);
+        vkCmdBuildAccelerationStructuresKHR(cmd, 1, &buildGeometryInfo, &pBuildOffsetInfo);
+        });
     vmaDestroyBuffer(mVmaAllocator, scratchBuffer.mBuffer, scratchBuffer.mAllocation);
 
 }
@@ -837,11 +854,9 @@ void VulkanApp::initImage()
     //
     // 2) We'll need to make imageLinear accessible to transfer writes (since we'll copy image to it later), 
     // and transition it from VK_IMAGE_LAYOUT_UNDEFINED to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL.
-    VkCommandBuffer uploadCmdBuffer = AllocateAndBeginOneTimeCommandBuffer(mDevice, mCommandPool);
-    {
-
-        const VkAccessFlags dstImageRenderAccesses  = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;   
-        const VkAccessFlags dstImageLinearAccesses  = VK_ACCESS_TRANSFER_WRITE_BIT;                    
+    immediateSubmit([&](VkCommandBuffer cmd) {
+        const VkAccessFlags dstImageRenderAccesses = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+        const VkAccessFlags dstImageLinearAccesses = VK_ACCESS_TRANSFER_WRITE_BIT;
 
         const VkImageSubresourceRange range{
             .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
@@ -872,15 +887,14 @@ void VulkanApp::initImage()
         imageBarriers[1].subresourceRange = range;
 
 
-        vkCmdPipelineBarrier(uploadCmdBuffer,      
-            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 
+        vkCmdPipelineBarrier(cmd,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
             VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, //TODO: ??
-            0,                     
-            0, nullptr,            
-            0, nullptr,            
-            2, imageBarriers.data());   
-    }
-    EndSubmitWaitAndFreeCommandBuffer(mDevice, mComputeQueue, mCommandPool, uploadCmdBuffer);
+            0,
+            0, nullptr,
+            0, nullptr,
+            2, imageBarriers.data());
+        });
 
 }
 
@@ -975,8 +989,8 @@ void VulkanApp::initDescriptorSets()
     std::vector<VkDescriptorBufferInfo> meshIndexBufferDescriptorArrayInfo;
     for (int i = 0;i < mScene.mMeshes.size(); ++i)
     {
-        meshVertexBufferDescriptorArrayInfo.emplace_back(mScene.mMeshes[i].mVertexBuffer.mBuffer, 0, mScene.mMeshes[i].mVertexBuffer.mByteSize);
-        meshIndexBufferDescriptorArrayInfo.emplace_back(mScene.mMeshes[i].mIndexBuffer.mBuffer, 0, mScene.mMeshes[i].mIndexBuffer.mByteSize);
+        meshVertexBufferDescriptorArrayInfo.emplace_back(mScene.mMeshes[i].mVertexBuffer.mBuffer, 0, mScene.mMeshes[i].mVertices.size() * sizeof(Vertex));
+        meshIndexBufferDescriptorArrayInfo.emplace_back(mScene.mMeshes[i].mIndexBuffer.mBuffer, 0, mScene.mMeshes[i].mIndices.size() * sizeof(uint32_t));
     }
     writeDescriptorSets[2] = {
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -997,7 +1011,7 @@ void VulkanApp::initDescriptorSets()
         .pBufferInfo = meshIndexBufferDescriptorArrayInfo.data()
     };
 
-    const VkDescriptorBufferInfo materialBufferDescriptorInfo{ .buffer = mScene.mMaterialsBuffer.mBuffer, .range = mScene.mMaterialsBuffer.mByteSize };
+    const VkDescriptorBufferInfo materialBufferDescriptorInfo{ .buffer = mScene.mMaterialsBuffer.mBuffer, .range = mScene.mMaterialsBuffer.mAllocInfo.size };
     writeDescriptorSets[4] = {
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
         .dstSet = mDescriptorSet,
@@ -1036,7 +1050,7 @@ void VulkanApp::initComputePipeline()
 
     // Create a push constant range describing the amount of data for the push constants.
     static_assert(sizeof(Camera) % 4 == 0, "Push constant size must be a multiple of 4 per the Vulkan spec!");
-    const VkPushConstantRange pushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Camera) + 2*sizeof(uint32_t)};
+    const VkPushConstantRange pushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Camera) + sizeof(SamplingParameters)};
 
     const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
@@ -1064,75 +1078,78 @@ void VulkanApp::initComputePipeline()
 
 void VulkanApp::render()
 {
-    VkCommandBuffer cmdBuf = AllocateAndBeginOneTimeCommandBuffer(mDevice, mCommandPool);
+    for (uint32_t sampleBatch = 0; sampleBatch < mNumBatches; ++sampleBatch)
     {
-        // Bind the compute pipeline.
-        vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, mComputePipeline);
+        immediateSubmit([&](VkCommandBuffer cmd) {
+            // Bind the compute pipeline and all the resources used by the pipeline.
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, mComputePipeline);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, mPipelineLayout, 0, 1, &mDescriptorSet, 0, nullptr);
 
-        // Bind the descriptor set for the pipeline.
-        vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, mPipelineLayout, 0, 1, &mDescriptorSet, 0, nullptr);
+            vkCmdPushConstants(cmd, mPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Camera), &mScene.mCamera);
+            mSamplingParams.mBatchID = sampleBatch;
+            vkCmdPushConstants(cmd, mPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, sizeof(Camera), sizeof(SamplingParameters), &mSamplingParams);
 
-        vkCmdPushConstants(cmdBuf, mPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Camera), &mScene.mCamera);                          
-        vkCmdPushConstants(cmdBuf, mPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, sizeof(Camera), sizeof(uint), &mNumSamples);
-        vkCmdPushConstants(cmdBuf, mPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, sizeof(Camera) + sizeof(uint), sizeof(uint), &mNumBounces);
+            // Run the compute shader for this batch.
+            vkCmdDispatch(cmd, std::ceil(mWindowExtents.width / 16), std::ceil(mWindowExtents.height / 16), 1);
 
-        // Run the compute shader.
-        vkCmdDispatch(cmdBuf, std::ceil(mWindowExtents.width / 16), std::ceil(mWindowExtents.height / 16), 1);
+            if (sampleBatch == mNumBatches - 1)
+            {
 
+                // Before we copy from the GPU image to the host-visible one, we need to 
+                // 1) Perform an image layout transition for the GPU image.
+                // 2) Place a memory barrier ensuring the compute shader has finished reading/writing from the GPU image before copying from it.
+                {
+                    VkImageMemoryBarrier imageBarrier = { .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+                    imageBarrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;    // Shader reads/writes to this image must have completed and be available
+                    imageBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;                               // Before reading from it in a transfer operation.
+                    imageBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+                    imageBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+                    imageBarrier.image = mImageRender.mImage;
+                    imageBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-        // Before we copy from the GPU image to the host-visible one, we need to 
-        // 1) Perform an image layout transition for the GPU image.
-        // 2) Place a memory barrier ensuring the compute shader has finished reading/writing from the GPU image before copying from it.
-        {
-            VkImageMemoryBarrier imageBarrier = {};
-            imageBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-            imageBarrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;    // Shader reads/writes to this image must have completed and be available
-            imageBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;                               // Before reading from it in a transfer operation.
-            imageBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-            imageBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-            imageBarrier.image = mImageRender.mImage;
-            imageBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+                    vkCmdPipelineBarrier(cmd,
+                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,  // Src and dst pipeline stages
+                        0,
+                        0, nullptr, 0, nullptr,
+                        1, &imageBarrier);
 
-            vkCmdPipelineBarrier(cmdBuf,
-                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,  // Src and dst pipeline stages
-                0,
-                0, nullptr, 0, nullptr,
-                1, &imageBarrier);
-
-            // Copy data from GPU image to Host-visible image.
-            VkImageCopy region{
-                .srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT,0,0,1},
-                .srcOffset = {0, 0, 0},
-                .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT,0,0,1},
-                .dstOffset = {0, 0, 0},
-                .extent = {mWindowExtents.width, mWindowExtents.height, 1}
-            };
-            vkCmdCopyImage(cmdBuf,
-                mImageRender.mImage,
-                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                mImageLinear.mImage,
-                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                1, &region);
-        }
+                    // Copy data from GPU image to Host-visible image.
+                    VkImageCopy region{
+                        .srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT,0,0,1},
+                        .srcOffset = {0, 0, 0},
+                        .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT,0,0,1},
+                        .dstOffset = {0, 0, 0},
+                        .extent = {mWindowExtents.width, mWindowExtents.height, 1}
+                    };
+                    vkCmdCopyImage(cmd,
+                        mImageRender.mImage,
+                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                        mImageLinear.mImage,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        1, &region);
+                }
 
 
-        // Place a global pipeline memory barrier that ensures all transfer writes must be made visible
-        // Before reading from the Host.
-        const VkMemoryBarrier memoryBarrier = {
-            .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
-            .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,  
-            .dstAccessMask = VK_ACCESS_HOST_READ_BIT       
-        };
-        vkCmdPipelineBarrier(cmdBuf,                    
-            VK_PIPELINE_STAGE_TRANSFER_BIT,            
-            VK_PIPELINE_STAGE_HOST_BIT,                
-            0,                                         
-            1, &memoryBarrier,                         
-            0, nullptr, 0, nullptr);                   
+                // Place a global pipeline memory barrier that ensures all transfer writes must be made visible
+                // Before reading from the Host.
+                const VkMemoryBarrier memoryBarrier = {
+                    .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+                    .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+                    .dstAccessMask = VK_ACCESS_HOST_READ_BIT
+                };
+                vkCmdPipelineBarrier(cmd,
+                    VK_PIPELINE_STAGE_TRANSFER_BIT,
+                    VK_PIPELINE_STAGE_HOST_BIT,
+                    0,
+                    1, &memoryBarrier,
+                    0, nullptr, 0, nullptr);
+            }
+            fmt::print("\rRendered batch {}/{}", sampleBatch + 1, mNumBatches);
+            });
     }
-    EndSubmitWaitAndFreeCommandBuffer(mDevice, mComputeQueue, mCommandPool, cmdBuf);
 }
 
+// Write image data to external file.
 void VulkanApp::writeImage(const fs::path& path)
 {
     void* data;

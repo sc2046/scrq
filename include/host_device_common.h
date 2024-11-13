@@ -13,15 +13,17 @@ using vec3 = glm::vec3;
 #endif  // #ifdef __cplusplus
 
 
+
 // TODO: (Hack) fix number of meshes a scene can contain.
 #define MAX_MESH_COUNT 64 
 #define SPHERE_CUSTOM_INDEX MAX_MESH_COUNT 
 #define MAX_TEXTURE_COUNT 500
 
 #define DIFFUSE		0
-#define METAL		1
+#define MIRROR		1
 #define DIELECTRIC	2
-#define LIGHT		3
+#define PHONG		3
+#define LIGHT		4
 
 
 // ==============================================================
@@ -62,10 +64,10 @@ struct Material
 {
 	uint	type;
 	vec3	albedo;
-	//vec3	emissive;	// Only used if type == LIGHT
+	int		phongExponent;	// Only used if type == PHONG
+	vec3	emitted;	// Only used if type == LIGHT
 	//float	ior;		// Only used if type == DIELECTRIC
-	//uint    diffuseTexID;
-
+	//uint    textureID;
 };
 
 #endif // #ifndef COMMON_H

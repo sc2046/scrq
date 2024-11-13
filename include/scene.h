@@ -37,10 +37,10 @@ struct Scene
 	std::vector<Sphere>                 mSpheres;
     std::vector<ObjMesh>                mMeshes;
 
-    Texture                             mTextures;
+    //std::vector<Texture>                mTextures;
 
     std::vector<Material>               mMaterials;
-    Buffer                              mMaterialsBuffer;
+    AllocatedBuffer                     mMaterialsBuffer;
 
     //Integrator                        mIntegrator;
 
@@ -61,7 +61,7 @@ inline Scene createShirleyBook1Scene()
     };
 
 
-    scene.mMaterials.emplace_back(DIFFUSE, glm::vec3(0.5f)/*, glm::vec3(0.f)*/);
+    scene.mMaterials.emplace_back(Material{ .type = DIFFUSE, .albedo = glm::vec3(0.5f), .emitted = glm::vec3(0.f) });
 
     scene.mMeshes.resize(1);
     scene.mMeshes[0].loadFromFile("assets/xy_quad.obj");
@@ -81,27 +81,27 @@ inline Scene createShirleyBook1Scene()
             if (glm::length(center - glm::vec3(4, 0.2, 0)) > 0.9) {
 
                 if (choose_mat < 0.8) {
-                    scene.mMaterials.emplace_back(DIFFUSE, random_vector());
+                    scene.mMaterials.emplace_back(Material{ .type = DIFFUSE, .albedo = random_vector(), .emitted = glm::vec3(0.f) });
                     scene.mSpheres.emplace_back(center, 0.2f, scene.mMaterials.size()-1);
                 }
                 else if (choose_mat < 0.95) {
-                    scene.mMaterials.emplace_back(METAL, random_vector());
+                    scene.mMaterials.emplace_back(Material{ .type = MIRROR, .albedo = random_vector(), .emitted = glm::vec3(0.f) });
                     scene.mSpheres.emplace_back(center, 0.2f, scene.mMaterials.size() - 1);
                 }
                 else {
-                    scene.mMaterials.emplace_back(METAL, random_vector());
+                    scene.mMaterials.emplace_back(Material{ .type = DIELECTRIC, .albedo = glm::vec3(1.f), .emitted = glm::vec3(0.f)});
                     scene.mSpheres.emplace_back(center, 0.2f, scene.mMaterials.size() - 1);
                 }
             }
         }
     }
-    scene.mMaterials.emplace_back(DIELECTRIC, glm::vec3(1.f));
+    scene.mMaterials.emplace_back(Material{ .type = DIELECTRIC, .albedo = glm::vec3(1.f), .emitted = glm::vec3(0.f) });
     scene.mSpheres.emplace_back(glm::vec3(0, 1, 0), 1.f, scene.mMaterials.size() - 1);
 
-    scene.mMaterials.emplace_back(DIFFUSE, glm::vec3(0.4f, 0.2f, 0.1f));
+    scene.mMaterials.emplace_back(Material{ .type = DIFFUSE, .albedo = glm::vec3(0.4f, 0.2f, 0.1f), .emitted = glm::vec3(0.f) });
     scene.mSpheres.emplace_back(glm::vec3(0, 1, 0), 1.f, scene.mMaterials.size() - 1);
 
-    scene.mMaterials.emplace_back(METAL, glm::vec3(0.7, 0.6, 0.5));
+    scene.mMaterials.emplace_back(Material{ .type = MIRROR, .albedo = glm::vec3(0.7, 0.6, 0.5), .emitted = glm::vec3(0.f) });
     scene.mSpheres.emplace_back(glm::vec3(4, 1, 0), 1.f, scene.mMaterials.size() - 1);
 
     return scene;
@@ -111,7 +111,7 @@ inline Scene createShirleyBook1Scene()
 inline Scene createSponzaBuddhaScene()
 {
     Scene scene;
-    scene.mName = "Sponza-Buddha";
+    scene.mName = "Sponza_Buddha";
 
     scene.mCamera = {
         .center = glm::vec3(-2, 0.5, -0.1),
@@ -121,15 +121,17 @@ inline Scene createSponzaBuddhaScene()
         .focalDistance = 1.f
     };
 
-    scene.mMaterials.emplace_back(DIFFUSE,  glm::vec3(0.5f));
-    scene.mMaterials.emplace_back(DIELECTRIC, glm::vec3(0.12, 0.45, 0.15));
+    scene.mMaterials.emplace_back(Material{ .type = DIFFUSE,  .albedo = glm::vec3(0.5f), .emitted = glm::vec3(0.f) });
+    scene.mMaterials.emplace_back(Material{ .type = DIELECTRIC, . albedo = glm::vec3(0.12, 0.45, 0.15) });
 
     scene.mMeshes.resize(2);
     scene.mMeshes[0].loadFromFile("assets/sponza.obj");
     scene.mMeshes[0].mMaterialID = 0;
 
-    scene.mMeshes[1].loadFromFile("assets/buddha.obj");
-    scene.mMeshes[1].mTransform = glm::translate(glm::mat4(1.f), { -2.f,0.f,0.f });
+    scene.mMeshes[1].loadFromFile("assets/backpack.obj");
+    scene.mMeshes[1].mTransform = glm::translate(glm::mat4(1.f), { -2.f,0.f,-3.f });
+    scene.mMeshes[1].mTransform = glm::scale(scene.mMeshes[1].mTransform, glm::vec3(0.5));
+
     scene.mMeshes[1].mMaterialID = 1;
 
     scene.mSpheres.emplace_back(glm::vec3(0.0, -5000, -1.0), 1000, 0);
@@ -137,11 +139,43 @@ inline Scene createSponzaBuddhaScene()
     return scene;
 }
 
-
-inline Scene createCornellBoxScene()
+inline Scene createAjaxScene()
 {
     Scene scene;
-    scene.mName = "Cornell_Box";
+    scene.mName = "Ajax";
+
+    scene.mCamera = {
+        .center = glm::vec3(-65.6055, 47.5762, 24.3583),
+        .eye = glm::vec3(-64.8161, 47.2211, 23.8576),
+        .backgroundColor = glm::vec3(5.f),
+        .fovY = 30.f,
+        .focalDistance = 1.f
+    };
+
+    scene.mMaterials.emplace_back(Material{ .type = DIFFUSE,  .albedo = glm::vec3(0.2f), .emitted = glm::vec3(0.f) });
+
+
+    scene.mMeshes.resize(2);
+    scene.mMeshes[0].loadFromFile("assets/xy_quad.obj");
+    auto transform = glm::translate(glm::mat4(1.f), { 0.f,0,0.f });
+    transform = glm::rotate(transform, glm::radians(-90.f), glm::vec3(1.f, 0.f, 0.f));
+    transform = glm::scale(transform, glm::vec3(1000));
+    scene.mMeshes[0].mTransform = transform;
+    scene.mMeshes[0].mMaterialID = 0;
+
+    scene.mMeshes[1].loadFromFile("assets/ajax.obj");
+    scene.mMeshes[1].mMaterialID = 0;
+
+    scene.mSpheres.emplace_back(glm::vec3(0.0, -5000, -1.0), 1000, 0);
+
+    return scene;
+}
+
+
+inline Scene createSphereCornellBoxScene()
+{
+    Scene scene;
+    scene.mName = "Sphere_Cornell_Box";
 
     scene.mCamera = {
         .center = glm::vec3(0, 20, 1077.5),
@@ -151,13 +185,15 @@ inline Scene createCornellBoxScene()
         .focalDistance = 1.f
     };
 
-    scene.mMaterials.emplace_back(DIFFUSE, glm::vec3(0.73, 0.73, 0.73)); // white
-    scene.mMaterials.emplace_back(DIFFUSE, glm::vec3(0.65, 0.05, 0.05)); // red
-    scene.mMaterials.emplace_back(DIFFUSE, glm::vec3(0.12, 0.45, 0.15)); // green
-    scene.mMaterials.emplace_back(LIGHT, glm::vec3(15)); // light
 
-    scene.mMaterials.emplace_back(DIFFUSE, glm::vec3(0.75, 0.25, 0.25)); // red sphere
-    scene.mMaterials.emplace_back(DIFFUSE, glm::vec3(0.25, 0.75, 0.25)); // green sphere
+    scene.mMaterials.emplace_back(Material{ .type = DIFFUSE, .albedo = glm::vec3(0.73), .emitted = glm::vec3(0.f) }); // white
+    scene.mMaterials.emplace_back(Material{ .type = DIFFUSE, .albedo = glm::vec3(0.65, 0.05, 0.05), .emitted = glm::vec3(0.f) }); // red
+    scene.mMaterials.emplace_back(Material{ .type = DIFFUSE, .albedo = glm::vec3(0.12, 0.45, 0.15), .emitted = glm::vec3(0.f) }); // green
+    scene.mMaterials.emplace_back(Material{ .type = LIGHT, .albedo = glm::vec3(1.f), .emitted = glm::vec3(15) }); // light
+
+
+    scene.mMaterials.emplace_back(Material{ .type = DIFFUSE, .albedo = glm::vec3(0.75, 0.25, 0.25), .emitted = glm::vec3(0.f) }); // red sphere
+    scene.mMaterials.emplace_back(Material{ .type = DIFFUSE, .albedo = glm::vec3(0.25, 0.75, 0.25), .emitted = glm::vec3(0.f) }); // green sphere
 
 
 
@@ -205,7 +241,7 @@ inline Scene createCornellBoxScene()
     scene.mMeshes[5].loadFromFile("assets/xy_quad.obj");
     transform = glm::translate(glm::mat4(1.f), glm::vec3(0, 277, 0));
     transform = glm::rotate(transform, glm::radians(90.f), glm::vec3(1.f, 0.f, 0.f));
-    transform = glm::scale(transform, glm::vec3(250));
+    transform = glm::scale(transform, glm::vec3(130));
     scene.mMeshes[5].mTransform = transform;
     scene.mMeshes[5].mMaterialID = 3;
 
@@ -213,4 +249,210 @@ inline Scene createCornellBoxScene()
     scene.mSpheres.emplace_back(glm::vec3(140, -177.5, 100), 100.f, 5);
 
     return scene;
+}
+
+inline Scene createBuddhaCornellBox()
+{
+    Scene scene;
+    scene.mName = "Buddha_Cornell";
+
+    scene.mCamera = {
+        .center = glm::vec3(0, 20, 1077.5),
+        .eye = glm::vec3(0, -4, 0),
+        .backgroundColor = glm::vec3(0.f),
+        .fovY = 40,
+        .focalDistance = 1.f
+    };
+
+    scene.mMaterials.emplace_back(Material{ .type = DIFFUSE, .albedo = glm::vec3(0.73), .emitted = glm::vec3(0.f) }); // white
+    scene.mMaterials.emplace_back(Material{ .type = DIFFUSE, .albedo = glm::vec3(0.65, 0.05, 0.05), .emitted = glm::vec3(0.f) }); // red
+    scene.mMaterials.emplace_back(Material{ .type = DIFFUSE, .albedo = glm::vec3(0.12, 0.45, 0.15), .emitted = glm::vec3(0.f) }); // green
+    scene.mMaterials.emplace_back(Material{ .type = LIGHT, .albedo = glm::vec3(1.f), .emitted = glm::vec3(15) }); // light
+    scene.mMaterials.emplace_back(Material{ .type = DIELECTRIC, .albedo = glm::vec3(1.f), .emitted = glm::vec3(0) }); // light
+
+    scene.mMeshes.resize(8);
+
+    scene.mMeshes[0].loadFromFile("assets/xy_quad.obj");
+    auto transform = glm::translate(glm::mat4(1.f), glm::vec3(0, 0, -277.5));
+    transform = glm::scale(transform, glm::vec3(555));
+    scene.mMeshes[0].mTransform = transform;
+    scene.mMeshes[0].mMaterialID = 0;
+
+
+    scene.mMeshes[1].loadFromFile("assets/xy_quad.obj");
+    transform = glm::translate(glm::mat4(1.f), glm::vec3(0, 277.5, 0));
+    transform = glm::rotate(transform, glm::radians(90.f), glm::vec3(1.f, 0.f, 0.f));
+    transform = glm::scale(transform, glm::vec3(555));
+    scene.mMeshes[1].mTransform = transform;
+    scene.mMeshes[1].mMaterialID = 0;
+
+
+    scene.mMeshes[2].loadFromFile("assets/xy_quad.obj");
+    transform = glm::translate(glm::mat4(1.f), glm::vec3(0, -277.5, 0));
+    transform = glm::rotate(transform, glm::radians(-90.f), glm::vec3(1.f, 0.f, 0.f));
+    transform = glm::scale(transform, glm::vec3(555));
+    scene.mMeshes[2].mTransform = transform;
+    scene.mMeshes[2].mMaterialID = 0;
+
+
+    scene.mMeshes[3].loadFromFile("assets/xy_quad.obj");
+    transform = glm::translate(glm::mat4(1.f), glm::vec3(-277.5, 0, 0));
+    transform = glm::rotate(transform, glm::radians(90.f), glm::vec3(0.f, 1.f, 0.f));
+    transform = glm::scale(transform, glm::vec3(555));
+    scene.mMeshes[3].mTransform = transform;
+    scene.mMeshes[3].mMaterialID = 2;
+
+    scene.mMeshes[4].loadFromFile("assets/xy_quad.obj");
+    transform = glm::translate(glm::mat4(1.f), glm::vec3(277.5, 0, 0));
+    transform = glm::rotate(transform, glm::radians(-90.f), glm::vec3(0.f, 1.f, 0.f));
+    transform = glm::scale(transform, glm::vec3(555));
+    scene.mMeshes[4].mTransform = transform;
+    scene.mMeshes[4].mMaterialID = 1;
+
+
+    // Light Source
+    scene.mMeshes[5].loadFromFile("assets/xy_quad.obj");
+    transform = glm::translate(glm::mat4(1.f), glm::vec3(0, 277, 0));
+    transform = glm::rotate(transform, glm::radians(90.f), glm::vec3(1.f, 0.f, 0.f));
+    transform = glm::scale(transform, glm::vec3(130));
+    scene.mMeshes[5].mTransform = transform;
+    scene.mMeshes[5].mMaterialID = 3;
+
+
+    // Diffuse Buddha
+    scene.mMeshes[6].loadFromFile("assets/buddha.obj");
+    transform = glm::translate(glm::mat4(1.f), glm::vec3(-140, -277.5, -100));
+    transform = glm::rotate(transform, glm::radians(90.f), glm::vec3(0.f, 1.f, 0.f));
+    transform = glm::scale(transform, glm::vec3(500));
+    transform = glm::translate(transform, glm::vec3(-1.02949, 0.006185, -0.03784));
+    scene.mMeshes[6].mTransform = transform;
+    scene.mMeshes[6].mMaterialID = 0;
+
+    // Dielectric Buddha
+    scene.mMeshes[7].loadFromFile("assets/buddha.obj");
+    transform = glm::translate(glm::mat4(1.f), glm::vec3(140, -277.5, 100));
+    transform = glm::rotate(transform, glm::radians(90.f), glm::vec3(0.f, 1.f, 0.f));
+    transform = glm::scale(transform, glm::vec3(500));
+    transform = glm::translate(transform, glm::vec3(-1.02949, 0.006185, -0.03784));
+    scene.mMeshes[7].mTransform = transform;
+    scene.mMeshes[7].mMaterialID = 4;
+
+    scene.mSpheres.emplace_back(glm::vec3(0, -5000, 0), 1.f, 4);
+
+    return scene;
+}
+
+inline Scene createVeachMatsScene()
+{
+    Scene scene;
+    scene.mName = "Veach_Mats";
+
+    scene.mCamera = {
+        .center = glm::vec3(0, 6, 27.5),
+        .eye = glm::vec3(0, -1.5, 2.5),
+        .backgroundColor = glm::vec3(0.f),
+        .fovY = 16,
+        .focalDistance = 1.f
+    };
+
+
+    scene.mMaterials.emplace_back(Material{ .type = LIGHT, .emitted = glm::vec3(901) });
+    scene.mMaterials.emplace_back(Material{ .type = LIGHT, .emitted = glm::vec3(100) });
+    scene.mMaterials.emplace_back(Material{ .type = LIGHT, .emitted = glm::vec3(11) });
+    scene.mMaterials.emplace_back(Material{ .type = LIGHT, .emitted = glm::vec3(1.2) });
+
+
+
+
+    scene.mSpheres.emplace_back(Sphere{ .center = glm::vec3(3.75, 0, 0), .radius = 0.03333,.materialID = 0 });
+    scene.mSpheres.emplace_back(Sphere{ .center = glm::vec3(1.25, 0, 0), .radius = 0.1, .materialID = 1 });
+    scene.mSpheres.emplace_back(Sphere{ .center = glm::vec3(-1.25, 0, 0), .radius = 0.3, .materialID = 2 });
+    scene.mSpheres.emplace_back(Sphere{ .center = glm::vec3(-3.75, 0, 0), .radius = 0.9, .materialID = 3 });
+
+    scene.mMaterials.emplace_back(Material{ .type = PHONG, .albedo = glm::vec3(0.35), .phongExponent = 100000 });
+    scene.mMaterials.emplace_back(Material{ .type = PHONG, .albedo = glm::vec3(0.25), .phongExponent = 5000 });
+    scene.mMaterials.emplace_back(Material{ .type = PHONG, .albedo = glm::vec3(0.2), .phongExponent = 400 });
+    scene.mMaterials.emplace_back(Material{ .type = PHONG, .albedo = glm::vec3(0.2), .phongExponent = 100 });
+    scene.mMaterials.emplace_back(Material{ .type = DIFFUSE, .albedo = glm::vec3(0.2) });
+
+
+    scene.mMeshes.resize(5);
+    scene.mMeshes[0].loadFromFile("assets/veach/plate1.obj");
+    scene.mMeshes[0].mMaterialID = 4;
+
+    scene.mMeshes[1].loadFromFile("assets/veach/plate2.obj");
+    scene.mMeshes[1].mMaterialID = 5;
+
+    scene.mMeshes[2].loadFromFile("assets/veach/plate3.obj");
+    scene.mMeshes[2].mMaterialID = 6;
+
+    scene.mMeshes[3].loadFromFile("assets/veach/plate4.obj");
+    scene.mMeshes[3].mMaterialID = 7;
+
+
+    scene.mMeshes[4].loadFromFile("assets/veach/floor.obj");
+    scene.mMeshes[4].mMaterialID = 8;
+
+    return scene;
+}
+
+inline Scene createVeachOdysseyScene()
+{
+    Scene scene;
+    scene.mName = "Veach_Odyssey";
+
+    scene.mCamera = {
+        .center = glm::vec3(20, 20, 50),
+        .eye = glm::vec3(0, 4, 0),
+        .backgroundColor = glm::vec3(0.f),
+        .fovY = 20,
+        .focalDistance = 1.f
+    };
+
+    scene.mMaterials.emplace_back(Material{ .type = DIFFUSE, .albedo = glm::vec3(0.8) });
+    scene.mMaterials.emplace_back(Material{ .type = DIFFUSE, .albedo = glm::vec3(0.95) });
+    scene.mMaterials.emplace_back(Material{ .type = LIGHT, .emitted = glm::vec3(1) });
+
+
+
+
+    scene.mMeshes.resize(3);
+
+    scene.mMeshes[0].loadFromFile("assets/cube.obj");
+    auto transform = glm::translate(glm::mat4(1.f), glm::vec3(0, 0.5, 0));
+    transform = glm::scale(transform, glm::vec3(1, 9, 4));
+    scene.mMeshes[0].mTransform = transform;
+    scene.mMeshes[0].mMaterialID = 0;
+
+    scene.mMeshes[1].loadFromFile("assets/xy_quad.obj");
+    {
+        auto m = glm::mat4(1.f);
+        m[0] = glm::vec4(0.f);
+        m[1] = glm::vec4(0, 0, -1, 0);
+        m[2] = glm::vec4(0, 1, 0, 0);
+        m[3] = glm::vec4(0, 0, 0, 1);
+        auto s = glm::scale(glm::mat4(1.f), glm::vec3(24, 18, 1));
+        scene.mMeshes[1].mTransform = m * s;
+    }
+    scene.mMeshes[1].mMaterialID = 1;
+
+    scene.mMeshes[2].loadFromFile("assets/xy_quad.obj");
+    {
+        transform = glm::mat4(1.f);
+        auto t = glm::translate(glm::mat4(1.f), glm::vec3(0, 5, 0));
+        auto m = glm::mat4(1.f);
+        transform[0] = glm::vec4(0.f);
+        transform[1] = glm::vec4(0, 0, -1, 0);
+        transform[2] = glm::vec4(0, 1, 0, 0);
+        transform[3] = glm::vec4(0, 0, 0, 1);
+        auto s = glm::scale(glm::mat4(1.f), glm::vec3(24, 18, 1));
+        scene.mMeshes[2].mTransform = t * m * s;
+    }
+    scene.mMeshes[2].mMaterialID = 2;
+
+
+    scene.mSpheres.emplace_back(Sphere{ .center = glm::vec3(0.f,-5000.f,0.f),.radius = 1.f,.materialID = 0 });
+
+    return scene;
+
 }

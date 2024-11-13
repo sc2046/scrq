@@ -24,7 +24,7 @@ int main()
         {
             auto begin = std::chrono::high_resolution_clock::now();
             engine.initContext(validation);
-            engine.initAllocators();
+            engine.initResources();
             engine.initImage();
             auto end = std::chrono::high_resolution_clock::now();
             vkInitTime = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
@@ -63,9 +63,9 @@ int main()
         auto begin = std::chrono::high_resolution_clock::now();
         engine.render();
         auto end = std::chrono::high_resolution_clock::now();
-        fmt::println("Render time: {}ms", std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count());
-        fmt::println("\tSample count: {}", engine.mNumSamples);
-        fmt::println("\tRecursion depth: {}", engine.mNumBounces);
+        fmt::println("\nRender time: {}ms", std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count());
+        fmt::println("\tSample count: {} * {} = {}", engine.mSamplingParams.mNumSamples, engine.mNumBatches, engine.mSamplingParams.mNumSamples * engine.mNumBatches);
+        fmt::println("\tRecursion depth: {}", engine.mSamplingParams.mNumBounces);
     }
 
     const fs::path sceneDirectory("../../scenes");
