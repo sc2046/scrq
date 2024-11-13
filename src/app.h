@@ -25,7 +25,7 @@ public:
 		uint32_t mBatchID;
 	};
 	SamplingParameters	mSamplingParams;
-	uint32_t			mNumBatches{ 16 };
+	uint32_t			mNumBatches{ 64 };
 
 	void initContext(bool validation);
 	void initResources();

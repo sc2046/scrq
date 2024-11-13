@@ -1,6 +1,7 @@
 
 TODO: 
 - Add textures
+- Use synchronisation 2.
 
 Materials:
 - Lambertian (Diffuse)
@@ -25,4 +26,5 @@ Ray Tracing:
 Vulkan:
 - https://nvpro-samples.github.io/vk_mini_path_tracer/
 - https://vkguide.dev/
+- https://vulkan-tutorial.com/
 - https://github.com/SaschaWillems/Vulkan

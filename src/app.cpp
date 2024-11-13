@@ -29,19 +29,21 @@ void VulkanApp::immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& funct
     cmdBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VK_CHECK(vkBeginCommandBuffer(mImmediateCmdBuf, &cmdBeginInfo));
 
+    // Run commands.
     function(mImmediateCmdBuf);
 
+    // End recording.
     VK_CHECK(vkEndCommandBuffer(mImmediateCmdBuf));
 
-    VkCommandBufferSubmitInfo cmdinfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+    VkCommandBufferSubmitInfo cmdinfo = {.sType =  VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
     cmdinfo.commandBuffer = mImmediateCmdBuf;
     cmdinfo.deviceMask = 0;
 
-    VkSubmitInfo2 submit = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+    VkSubmitInfo2 submit = { .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
     submit.commandBufferInfoCount = 1;
     submit.pCommandBufferInfos = &cmdinfo;
 
-    // Submit command buffer to the queue and wait on the associated fence.
+    // Submit command buffer to the queue and immediately wait on the associated fence.
     VK_CHECK(vkQueueSubmit2(mComputeQueue, 1, &submit, mImmediateFence));
     VK_CHECK(vkWaitForFences(mDevice, 1, &mImmediateFence, true, 9999999999));
 }
@@ -183,9 +185,10 @@ void VulkanApp::initResources()
 // Uploads all scene geometry into GPU buffers;
 void VulkanApp::uploadScene()
 {
-    mScene = createSphereCornellBoxScene();
+    mScene = createBuddhaCornellBox();
 
-    //TODO: Use same staging buffer for all meshes (set size equal to largest of meshes).
+    //TODO: Create one large staging buffer for all scene data? 
+    
     // Upload triangle mesh data
     for(auto&& mesh : mScene.mMeshes)
     { 
@@ -212,7 +215,7 @@ void VulkanApp::uploadScene()
         mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, mesh.mIndexBuffer.mBuffer, mesh.mIndexBuffer.mAllocation);});
 
 
-        // Create CPU staging buffers for the mesh data.
+        // Create a staging buffer for the mesh data.
         AllocatedBuffer meshStagingBuffer;
         const VkBufferCreateInfo stagingbufferCreateInfo{
                 .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -227,12 +230,14 @@ void VulkanApp::uploadScene()
         };
         VK_CHECK(vmaCreateBuffer(mVmaAllocator, &stagingbufferCreateInfo, &stagingBufferAllocInfo, &meshStagingBuffer.mBuffer, &meshStagingBuffer.mAllocation, &meshStagingBuffer.mAllocInfo));
 
+        // Copy mesh data to staging buffer.
         void* data;
         vmaMapMemory(mVmaAllocator, meshStagingBuffer.mAllocation, (void**)&data);
         memcpy(data, mesh.mVertices.data(), vertexBufferSize);
         memcpy((char*)data + vertexBufferSize, mesh.mIndices.data(), indexBufferSize);
         vmaUnmapMemory(mVmaAllocator, meshStagingBuffer.mAllocation); 
 
+        // Transfer mesh data to GPU buffer.
         immediateSubmit([&](VkCommandBuffer cmd) {
             VkBufferCopy vertexCopy;
             vertexCopy.dstOffset = 0;
@@ -245,18 +250,29 @@ void VulkanApp::uploadScene()
             indexCopy.srcOffset = vertexBufferSize;
             indexCopy.size = indexBufferSize;
             vkCmdCopyBuffer(cmd, meshStagingBuffer.mBuffer, mesh.mIndexBuffer.mBuffer, 1, &indexCopy);
-            }); 
+        }); 
 
         // Staging buffer no longer needed.
         vmaDestroyBuffer(mVmaAllocator, meshStagingBuffer.mBuffer, meshStagingBuffer.mAllocation);
-
     }
 
     // Upload materials.
     {
-        AllocatedBuffer materialsStagingBuffer;
         const auto materialsBufferSize = mScene.mMaterials.size() * sizeof(Material);
 
+        // Create GPU buffer for the scene materials.
+        const VkBufferCreateInfo deviceBufferCreateInfo{
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = materialsBufferSize,
+            .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+        };
+        const VmaAllocationCreateInfo deviceBufferAllocInfo{ .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, };
+        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &deviceBufferCreateInfo, &deviceBufferAllocInfo, &mScene.mMaterialsBuffer.mBuffer, &mScene.mMaterialsBuffer.mAllocation, &mScene.mMaterialsBuffer.mAllocInfo));
+        mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, mScene.mMaterialsBuffer.mBuffer, mScene.mMaterialsBuffer.mAllocation);});
+
+        // Create a staging buffer.
+        AllocatedBuffer materialsStagingBuffer;
         const VkBufferCreateInfo stagingbufferCreateInfo{
                 .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
                 .size = materialsBufferSize,
@@ -270,27 +286,19 @@ void VulkanApp::uploadScene()
         };
         VK_CHECK(vmaCreateBuffer(mVmaAllocator, &stagingbufferCreateInfo, &stagingBufferAllocInfo, &materialsStagingBuffer.mBuffer, &materialsStagingBuffer.mAllocation, &materialsStagingBuffer.mAllocInfo));
 
+        // Copy material data to staging buffer.
         void* sdata;
         vmaMapMemory(mVmaAllocator, materialsStagingBuffer.mAllocation, (void**)&sdata);
         memcpy(sdata, mScene.mMaterials.data(), mScene.mMaterials.size() * sizeof(Material));
         vmaUnmapMemory(mVmaAllocator, materialsStagingBuffer.mAllocation);
 
-        // Create GPU buffer for the materials.
-        const VkBufferCreateInfo deviceBufferCreateInfo{
-            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .size = materialsBufferSize,
-            .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            .sharingMode = VK_SHARING_MODE_EXCLUSIVE
-        };
-        const VmaAllocationCreateInfo deviceBufferAllocInfo{ .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, };
-        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &deviceBufferCreateInfo, &deviceBufferAllocInfo, &mScene.mMaterialsBuffer.mBuffer, &mScene.mMaterialsBuffer.mAllocation, &mScene.mMaterialsBuffer.mAllocInfo));
-        mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, mScene.mMaterialsBuffer.mBuffer, mScene.mMaterialsBuffer.mAllocation);});
-
+        // Transfer material data from staging buffer to gpu buffer.
         immediateSubmit([&](VkCommandBuffer cmd) {
             const VkBufferCopy copy{ .srcOffset = 0, .dstOffset = 0, .size = materialsBufferSize };
             vkCmdCopyBuffer(cmd, materialsStagingBuffer.mBuffer, mScene.mMaterialsBuffer.mBuffer, 1, &copy);
             });
 
+        // No longer need staging buffer.
         vmaDestroyBuffer(mVmaAllocator, materialsStagingBuffer.mBuffer, materialsStagingBuffer.mAllocation);
     }
 
@@ -440,36 +448,13 @@ void VulkanApp::uploadScene()
 // Creates a blas for an AABB centered at the origin, with a half-extents of 1.
 void VulkanApp::initAabbBlas()
 {
-    // First need to create buffer for the aabb, which will be used to build the BLAS. 
+    // First need to create a GPU buffer for the aabb, which will be used to build the BLAS. 
     {
-        const AABB aabb{
-            .min = glm::vec3(-1.f),
-            .max = glm::vec3(1.f),
-        };
-
-        AllocatedBuffer stagingBuffer;
+        const AABB aabb{ .min = glm::vec3(-1.f), .max = glm::vec3(1.f)};
         const auto aabbBufferSize = sizeof(AABB);
 
-        VkBufferCreateInfo stagingbufferCreateInfo{
-                .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-                .size = aabbBufferSize,
-                .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                .sharingMode = VK_SHARING_MODE_EXCLUSIVE
-        };
-        const VmaAllocationCreateInfo stagingBufferAllocInfo{
-                .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT,
-                .usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
-                .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-        };
-        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &stagingbufferCreateInfo, &stagingBufferAllocInfo, &stagingBuffer.mBuffer, &stagingBuffer.mAllocation, &stagingBuffer.mAllocInfo));
-
-        void* sdata;
-        vmaMapMemory(mVmaAllocator, stagingBuffer.mAllocation, (void**)&sdata);
-        memcpy(sdata, &aabb, sizeof(AABB));
-        vmaUnmapMemory(mVmaAllocator, stagingBuffer.mAllocation);
-
         // Create GPU buffer for the AABB.
-        VkBufferCreateInfo deviceBufferCreateInfo{
+        const VkBufferCreateInfo deviceBufferCreateInfo{
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
             .size = aabbBufferSize,
             .usage =
@@ -483,16 +468,37 @@ void VulkanApp::initAabbBlas()
         VK_CHECK(vmaCreateBuffer(mVmaAllocator, &deviceBufferCreateInfo, &deviceBufferAllocInfo, &mAabbGeometryBuffer.mBuffer, &mAabbGeometryBuffer.mAllocation, &mAabbGeometryBuffer.mAllocInfo));
         mDeletionQueue.push_function([&]() {vmaDestroyBuffer(mVmaAllocator, mAabbGeometryBuffer.mBuffer, mAabbGeometryBuffer.mAllocation);});
 
+        // Create staging buffer for the AABB.
+        AllocatedBuffer stagingBuffer;
+        const VkBufferCreateInfo stagingbufferCreateInfo{
+                .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                .size = aabbBufferSize,
+                .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+        };
+        const VmaAllocationCreateInfo stagingBufferAllocInfo{
+                .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT,
+                .usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+                .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        };
+        VK_CHECK(vmaCreateBuffer(mVmaAllocator, &stagingbufferCreateInfo, &stagingBufferAllocInfo, &stagingBuffer.mBuffer, &stagingBuffer.mAllocation, &stagingBuffer.mAllocInfo));
+
+        // Copy data to the staging buffer.
+        void* data;
+        vmaMapMemory(mVmaAllocator, stagingBuffer.mAllocation, (void**)&data);
+        memcpy(data, &aabb, sizeof(AABB));
+        vmaUnmapMemory(mVmaAllocator, stagingBuffer.mAllocation);
+        
+        // Transfer data from stating buffer to GPU buffer.
         immediateSubmit([&](VkCommandBuffer cmd) {
             const VkBufferCopy copy{ .srcOffset = 0, .dstOffset = 0, .size = aabbBufferSize };
             vkCmdCopyBuffer(cmd, stagingBuffer.mBuffer, mAabbGeometryBuffer.mBuffer, 1, &copy);
             });
 
-
         vmaDestroyBuffer(mVmaAllocator, stagingBuffer.mBuffer, stagingBuffer.mAllocation);
     }
-
     const uint32_t kAabbCount = 1;
+
     const VkAccelerationStructureGeometryAabbsDataKHR aabbData{
         .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_AABBS_DATA_KHR,
         .data = {.deviceAddress = GetBufferDeviceAddress(mDevice, mAabbGeometryBuffer.mBuffer)},
@@ -897,7 +903,6 @@ void VulkanApp::initImage()
         });
 
 }
-
 
 // Defines the layout for the descriptor set.
 // Creates a descriptor pool to allocate descriptors from.
