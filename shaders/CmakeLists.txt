@@ -1,0 +1,45 @@
+# Define list of shader files to be compiled.
+set(SHADER_FILES
+    ray_trace.comp.glsl
+)
+
+# Define a list of shader include directories.
+set(SHADER_INCLUDE_DIRS
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_SOURCE_DIR}/include"
+)
+
+# Create a folder to place the spir-v files.
+set(SHADERS_BUILD_DIR "${CMAKE_BINARY_DIR}/shaders")
+file(MAKE_DIRECTORY "${SHADERS_BUILD_DIR}")
+
+# Build a list of compiler arguments for glslangValidator.
+set(GLSLANG_VALIDATOR_INCLUDE_ARGS "")
+foreach(INC_DIR ${SHADER_INCLUDE_DIRS})
+    list(APPEND GLSLANG_VALIDATOR_INCLUDE_ARGS "-I${INC_DIR}")
+endforeach()
+
+foreach(SHADER_FILE ${SHADER_FILES})
+
+    # Extract the file name without the .glsl extension
+    string(REGEX REPLACE "\\.glsl$" "" SHADER_BASENAME "${SHADER_FILE}")
+    set(SPIRV_FILE "${SHADERS_BUILD_DIR}/${SHADER_BASENAME}.spv")
+
+    add_custom_command(
+        OUTPUT  ${SPIRV_FILE}
+        COMMAND glslangValidator
+            -V                                          # Compile to SPIR-V
+            ${GLSLANG_VALIDATOR_INCLUDE_ARGS}
+            "${CMAKE_CURRENT_SOURCE_DIR}/${SHADER_FILE}"             
+            -o "${SPIRV_FILE}"            
+        DEPENDS ${SHADER_FILE}
+        COMMENT "Compiling ${CMAKE_CURRENT_SOURCE_DIR}/${SHADER_FILE} -> ${SPIRV_FILE}"
+        VERBATIM
+    )
+    list(APPEND COMPILED_SHADERS ${SPIRV_FILE})
+endforeach()
+
+# Create a target that compiles all shaders in this list
+add_custom_target(CompileShaders ALL
+    DEPENDS ${COMPILED_SHADERS}
+)

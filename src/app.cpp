@@ -48,7 +48,7 @@ void VulkanApp::immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& funct
     VK_CHECK(vkWaitForFences(mDevice, 1, &mImmediateFence, true, 9999999999));
 }
 
-void VulkanApp::initContext(bool validation)
+void VulkanApp::initVulkanContext(bool validation)
 {
     // Create instance
     vkb::InstanceBuilder builder;
@@ -158,7 +158,7 @@ void VulkanApp::initContext(bool validation)
 }
 
 // Initialise all global vulkan resources needed for the program.
-void VulkanApp::initResources()
+void VulkanApp::initVulkanResources()
 {
     // Create a fence used for immediate submits.
     VkFenceCreateInfo fenceInfo = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
@@ -185,7 +185,7 @@ void VulkanApp::initResources()
 // Uploads all scene geometry into GPU buffers;
 void VulkanApp::uploadScene()
 {
-    mScene = createAjaxScene();
+    mScene = createBuddhaCornellBox();
 
     //TODO: Create one large staging buffer for all scene data? 
     
@@ -803,7 +803,7 @@ void VulkanApp::initSceneTLAS()
 
 }
 
-void VulkanApp::initImage()
+void VulkanApp::initImages()
 {
     // Create an image that will be used to write to in the compute shader.
     VkImageCreateInfo imageCreateInfo{
@@ -1043,21 +1043,20 @@ void VulkanApp::initDescriptorSets()
 
 void VulkanApp::initComputePipeline()
 {
-
     // Specify specialization constants.
     std::array<VkSpecializationMapEntry, 1> specializationMapEntries;
     specializationMapEntries[0].constantID = 0;
     specializationMapEntries[0].size = sizeof(mSpecializationData.integrator);
     specializationMapEntries[0].offset = 0;
 
-    VkSpecializationInfo specializationInfo;
+    VkSpecializationInfo specializationInfo = {};
     specializationInfo.dataSize         = sizeof(SpecializationData);
     specializationInfo.pData            = &mSpecializationData;
     specializationInfo.mapEntryCount    = static_cast<uint32_t>(specializationMapEntries.size());
     specializationInfo.pMapEntries      = specializationMapEntries.data();
 
     // Load shader module.
-    mComputeShader = createShaderModule(mDevice, fs::path("shaders/book2/book2.spv"));
+    mComputeShader = createShaderModule(mDevice, fs::path("shaders/ray_trace.comp.spv"));
     const VkPipelineShaderStageCreateInfo pipelineShaderStageCreateInfo{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
         .stage = VK_SHADER_STAGE_COMPUTE_BIT,
@@ -1067,13 +1066,11 @@ void VulkanApp::initComputePipeline()
     };
     mDeletionQueue.push_function([&]() {vkDestroyShaderModule(mDevice, mComputeShader, nullptr); });
 
-    // Specify specialization
-
-
-    // Create a push constant range describing the amount of data for the push constants.
+    // Specify push constants.
     static_assert(sizeof(Camera) % 4 == 0, "Push constant size must be a multiple of 4 per the Vulkan spec!");
     const VkPushConstantRange pushConstantRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Camera) + sizeof(SamplingParameters)};
 
+    // Create the pipeline layout.
     const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .setLayoutCount = 1,
@@ -1085,10 +1082,11 @@ void VulkanApp::initComputePipeline()
     VK_CHECK(vkCreatePipelineLayout(mDevice, &pipelineLayoutCreateInfo, VK_NULL_HANDLE, &mPipelineLayout));
     mDeletionQueue.push_function([&]() {vkDestroyPipelineLayout(mDevice, mPipelineLayout, nullptr);  });
 
-    VkComputePipelineCreateInfo computePipelineCreateInfo{
+    // Create the compute pipeline.
+    const VkComputePipelineCreateInfo computePipelineCreateInfo{
         .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
         .stage = pipelineShaderStageCreateInfo,
-        .layout = mPipelineLayout
+        .layout = mPipelineLayout,
     };
     VK_CHECK(vkCreateComputePipelines(mDevice, 
         VK_NULL_HANDLE,                        
@@ -1167,7 +1165,7 @@ void VulkanApp::render()
                     1, &memoryBarrier,
                     0, nullptr, 0, nullptr);
             }
-            fmt::print("\rRendered batch {}/{}", sampleBatch + 1, mNumBatches);
+            fmt::print("\rRendering batch {}/{}", sampleBatch + 1, mNumBatches);
             });
     }
 }

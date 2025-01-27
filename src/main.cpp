@@ -14,69 +14,33 @@ int main()
     VulkanApp engine;
     
     // Initialization 
-    {
+    engine.initVulkanContext(validation);
+    engine.initVulkanResources();
+    engine.initImages();
 
-        double vkInitTime;
-        double sceneInitTime;
-        double asInitTime;
+    // Upload scene data to the GPU.
+    engine.uploadScene();
 
-        auto begin = std::chrono::high_resolution_clock::now();
-        {
-            auto begin = std::chrono::high_resolution_clock::now();
-            engine.initContext(validation);
-            engine.initResources();
-            engine.initImage();
-            auto end = std::chrono::high_resolution_clock::now();
-            vkInitTime = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
-        }
+    // Initialize the acceleration structures for the scene.
+    engine.initAabbBlas();
+    for (std::size_t i = 0; i < engine.mScene.mMeshes.size(); ++i) { engine.initMeshBlas(engine.mScene.mMeshes[i]);}
+    engine.initSceneTLAS();
 
-        {
-            auto begin = std::chrono::high_resolution_clock::now();
-            engine.uploadScene();
-            auto end = std::chrono::high_resolution_clock::now();
-            sceneInitTime = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
-        }
+    
+    engine.initDescriptorSets();
+    engine.initComputePipeline();
 
-        {
-            auto begin = std::chrono::high_resolution_clock::now();
-            engine.initAabbBlas();
-            for (int i = 0; i < engine.mScene.mMeshes.size(); ++i)
-            {
-                engine.initMeshBlas(engine.mScene.mMeshes[i]);
-            }
-            engine.initSceneTLAS();
-            auto end = std::chrono::high_resolution_clock::now();
-            asInitTime = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
-        }
 
-        engine.initDescriptorSets();
-        engine.initComputePipeline();
-        
-        auto end = std::chrono::high_resolution_clock::now();
-        fmt::println("Setup time: {}ms", std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count());
-        fmt::println("\tVulkan context initialization: {}ms", vkInitTime);
-        fmt::println("\tScene setup: {}ms", sceneInitTime);
-        fmt::println("\tAcceleration structure setup: {}ms", asInitTime);
-    }
+    engine.render();
+    fmt::println("\nSample count: {} * {} = {}", engine.mSamplingParams.mNumSamples, engine.mNumBatches, engine.mSamplingParams.mNumSamples * engine.mNumBatches);
+    fmt::println("Recursion depth: {}", engine.mSamplingParams.mNumBounces);
 
-    {
-        auto begin = std::chrono::high_resolution_clock::now();
-        engine.render();
-        auto end = std::chrono::high_resolution_clock::now();
-        fmt::println("\nRender time: {}ms", std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count());
-        fmt::println("\tSample count: {} * {} = {}", engine.mSamplingParams.mNumSamples, engine.mNumBatches, engine.mSamplingParams.mNumSamples * engine.mNumBatches);
-        fmt::println("\tRecursion depth: {}", engine.mSamplingParams.mNumBounces);
-    }
 
-    const fs::path sceneDirectory("../../scenes");
+    // Write rendered image to file.
+    const fs::path sceneDirectory("../../scenes"); // TODO: Use Command line args to specify out folder.
     const auto outPath = (sceneDirectory / engine.mScene.mName).replace_extension(".hdr");
-    {
-        auto begin = std::chrono::high_resolution_clock::now();
-        engine.writeImage(outPath);
-        auto end = std::chrono::high_resolution_clock::now();
-        fmt::println("Image write time: {}ms", std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count());
-        fmt::println("Image written to: {}", fs::absolute(outPath).string());
-    }
+    engine.writeImage(outPath);
+    fmt::println("Image written to: {}", fs::absolute(outPath).string());
 
     engine.cleanup();
 }

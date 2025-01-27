@@ -188,9 +188,9 @@ float sampleHemisphereCosinePDF(vec3 v)
 /// Sample a vector on the unit hemisphere with a cosine-power density about the normal (0,0,1)
 vec3 sampleHemisphereCosinePower(float exponent, vec2 rv)
 {
-	const float cos_theta = pow(rv[0], 1 / (exponent + 1));
-	const float phi = 2.f * M_PI * rv[1];
-	const float sin_theta = sqrt(1 - cos_theta * cos_theta);
+	const float cos_theta	= pow(rv[0], 1 / (exponent + 1));
+	const float phi			= 2.f * M_PI * rv[1];
+	const float sin_theta	= sqrt(1 - cos_theta * cos_theta);
 
 	const float z = cos_theta < 0.f ? -cos_theta : cos_theta;
 	return vec3(cos(phi) * sin_theta, sin(phi) * sin_theta, z);
@@ -201,6 +201,7 @@ float sampleHemisphereCosinePowerPDF(float exponent, float cosine)
 {
 	return (exponent + 1) * pow(cosine, exponent) * INV_TWOPI;
 }
+
 
 
 // ==============================================================
@@ -310,6 +311,8 @@ vec3 evalPhong(vec3 inWorldO, vec3 inWorldD, vec3 scattered, HitInfo hitInfo)
 {
 	return hitInfo.albedo * pdfPhong(inWorldO, inWorldD, scattered, hitInfo);
 }
+
+
 
 
 #endif // #ifndef DEVICE_SAMPLING_H

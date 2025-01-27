@@ -30,6 +30,7 @@ using vec3 = glm::vec3;
 #define PATH		0
 #define NORMAL		1
 #define AO			2
+
 // Samplers
 
 

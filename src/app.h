@@ -12,7 +12,6 @@
 class VulkanApp {
 public:
 
-
 	bool bUseValidationLayers{ true };
 	VkExtent2D mWindowExtents{ 800, 600 };
 	VkExtent2D mWorkGroupDim{ 16,16 };
@@ -30,24 +29,26 @@ public:
 
 	struct SpecializationData
 	{
-		uint32_t integrator{ NORMAL };
+		uint32_t integrator{ PATH };
 		//uint32_t sampler;
 	};
 	SpecializationData mSpecializationData;
 
 
-	void initContext(bool validation);
-	void initResources();
-	void initImage();
-
-	void uploadScene();
+	void initVulkanContext(bool validation);
+	void initVulkanResources();
+	void initImages();
 
 	void initAabbBlas();
 	void initMeshBlas(ObjMesh& mesh);
 	void initSceneTLAS();
-	 
+
 	void initDescriptorSets();
 	void initComputePipeline();
+
+	void uploadScene();
+
+
 	
 	void render();
 	void writeImage(const fs::path& path);

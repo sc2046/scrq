@@ -232,6 +232,8 @@ inline Scene createSphereCornellBoxScene()
     scene.mMeshes[5].mTransform = transform;
     scene.mMeshes[5].mMaterialID = 3;
 
+    
+
     scene.mSpheres.emplace_back(glm::vec3(-140, -177.5, -100), 100.f, 4);
     scene.mSpheres.emplace_back(glm::vec3(140, -177.5, 100), 100.f, 5);
 
@@ -377,6 +379,39 @@ inline Scene createVeachMatsScene()
 
     scene.mMeshes[4].loadFromFile("assets/veach/floor.obj");
     scene.mMeshes[4].mMaterialID = 8;
+
+    return scene;
+}
+
+inline Scene createMaterialTestScene()
+{
+    Scene scene;
+    scene.mName = "MaterialTest";
+
+    scene.mCamera = {
+        .center = glm::vec3(0, 0, 0),
+        .eye = glm::vec3(0, 0, -1),
+        .backgroundColor = glm::vec3(1.f),
+        .fovY = 90,
+        .focalDistance = 1.f
+    };
+
+    // Floor
+
+    scene.mMeshes.resize(1);
+    scene.mMeshes[0].loadFromFile("assets/xy_quad.obj");
+    auto transform = glm::translate(glm::mat4(1.f), { 0.f,-50000,0.f });
+    transform = glm::rotate(transform, glm::radians(-90.f), glm::vec3(1.f, 0.f, 0.f));
+    transform = glm::scale(transform, glm::vec3(1));
+    scene.mMeshes[0].mTransform = transform;
+    scene.mMeshes[0].mMaterialID = 0;
+
+    scene.mMaterials.emplace_back(Material{ .type = DIFFUSE, .albedo = glm::vec3(0.5f), .emitted = glm::vec3(0.f) });
+    scene.mMaterials.emplace_back(Material{ .type = DIFFUSE, .albedo = glm::vec3(0.8,0.8,0) });
+    scene.mSpheres.emplace_back(Sphere{ .center = glm::vec3(0.0, -100.5, -1.0), .radius = 100 , .materialID = 0});
+    scene.mSpheres.emplace_back(Sphere{ .center = glm::vec3(0.0, 0.0, -1.2), .radius = 0.5 , .materialID= 1 });
+
+
 
     return scene;
 }

@@ -1,16 +1,21 @@
-add_executable (book2
+add_executable (path_tracer
 "main.cpp"  
 "app.cpp" "app.h" "tiny_obj_loader.cpp")
 
-target_link_libraries(book2 glfw)
-target_link_libraries(book2 vk-bootstrap)
-target_link_libraries(book2 volk)
-target_link_libraries(book2 Vulkan::Vulkan)
-target_link_libraries(book2 fmt)
+target_link_libraries(path_tracer glfw)
+target_link_libraries(path_tracer vk-bootstrap)
+target_link_libraries(path_tracer volk)
+target_link_libraries(path_tracer Vulkan::Vulkan)
+target_link_libraries(path_tracer fmt)
+
 
 add_custom_command(
-	TARGET book2 POST_BUILD 
-	COMMAND ${CMAKE_COMMAND} -E copy_directory #recursively copy
-	${CMAKE_SOURCE_DIR}/shaders/book2
-	$<TARGET_FILE_DIR:book2>/shaders/book2)
-set_property(TARGET book2 PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/bin/$(Configuration)")
+    TARGET path_tracer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_SOURCE_DIR}/assets"
+        "$<TARGET_FILE_DIR:path_tracer>/assets"
+    COMMENT "Copying assets to bin folder"
+)
+
+# Ensure MyVulkanApp depends on compiled shaders
+add_dependencies(path_tracer CompileShaders)
